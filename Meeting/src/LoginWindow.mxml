@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+
+ADOBE SYSTEMS INCORPORATED
+Copyright 2010 Adobe Systems Incorporated
+All Rights Reserved.
+
+NOTICE: Adobe permits you to use, modify, and distribute this file
+in accordance with the terms of the license agreement accompanying it.
+
+Author: Jozsef Vass
+-->
+
+<s:TitleWindow xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mx="library://ns.adobe.com/flex/mx" width="420" height="220" title="Service Information">
+
+	<s:states>
+		<s:State name="Ready"/>
+		<s:State name="Registering"/>
+	</s:states>
+	
+	<fx:Style>
+		@namespace s "library://ns.adobe.com/flex/spark";
+		@namespace mx "library://ns.adobe.com/flex/mx";
+		
+		.buttonStyle {
+			color: "0x000000";
+			textRollOverColor: "0x000000";
+			textSelectedColor: "0x000000";
+		}
+	</fx:Style>
+	
+	<fx:Declarations>
+		<s:RadioButtonGroup id="protocolGroup"/>
+	</fx:Declarations>
+	
+	<mx:Form>
+		<mx:FormItem label="Service Host:">
+			<s:TextInput id="serviceInput" width="300" color="0x000000"/>
+		</mx:FormItem>
+		<mx:FormItem label="Meeting:">
+			<s:TextInput id="meetingInput" width="300" color="0x000000"/>
+		</mx:FormItem>
+		<mx:FormItem label="User Name:">
+			<s:TextInput id="userInput" width="300"/>
+		</mx:FormItem>
+		<mx:FormItem label="Connection:" direction="horizontal">
+			<s:RadioButton group="{protocolGroup}" value="rtmfp" label="RTMFP" selected="true" />
+			<s:RadioButton id="rtmpSelection" group="{protocolGroup}" value="rtmp" label="RTMP" />
+		</mx:FormItem>
+		<mx:FormItem label="Status:">
+			<s:Label id="registerStatusLabel" text="Please fill in service information to register" width="300" maxDisplayedLines="1"/>
+		</mx:FormItem>
+		<mx:FormItem includeIn="Ready">
+			<s:Button id="registerButton" label="REGISTER" enabled="{serviceInput.text.length > 0 &amp;&amp; meetingInput.text.length > 0 &amp;&amp; userInput.text.length > 0}" styleName="buttonStyle"/>
+		</mx:FormItem>
+		<mx:FormItem includeIn="Registering">
+			<s:Button id="cancelButton" label="CANCEL" styleName="buttonStyle"/>
+		</mx:FormItem>
+	</mx:Form>
+</s:TitleWindow>

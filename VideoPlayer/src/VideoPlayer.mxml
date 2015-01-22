@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+				xmlns:s="library://ns.adobe.com/flex/spark" 
+				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="955" minHeight="800" applicationComplete="init();" backgroundColor="0x66CC66">
+	<fx:Declarations>
+	</fx:Declarations>
+	<fx:Script>
+		<![CDATA[			
+			import mx.core.Container;
+			import mx.utils.URLUtil;
+			
+			// Variables for RTMP/RTMFP connection
+			private var _netConnection:NetConnection;
+			private var _receiveNS:NetStream;
+			private var _domainNPath2:String; // url of the video
+			private var _name2:String; // name of the video
+			private var _netGroup:NetGroup;
+			private var _vid:Video = new Video(400, 300);
+			
+			private function init():void {
+				// Add RTMP/RTMFP video player 
+				_vid.opaqueBackground = 0x000000;
+				video2.addChild(_vid);
+				
+				// Generate dynamic url
+				var url:String = this.loaderInfo.url;
+				var domainNPath:Array = url.match(/(:\/\/.+)\//);
+				if (URLUtil.getProtocol(url) != "file") {
+					address.text = "http" + domainNPath[1] + "/test123.flv";
+					address2.text = "rtmfp" + domainNPath[1] + "/test123";
+				}
+				
+				// Generate netconnection for RTMP/RTMFP player
+				_netConnection = new NetConnection();
+				_netConnection.client = this;
+				_netConnection.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetConnection);
+				
+				// Add close window handler to close connection at 
+				ExternalInterface.addCallback("sendToActionScript", closeWindow);
+			}
+			
+			/**
+			 * 
+			 * This function is called from Javascript when the window
+			 * is closed for closing an eventual connection
+			 * It is very IMPORTANT to close correctly the connection
+			 * 
+			 * Note : doesn't work using "file://" protocol
+			 * 
+			 */
+			public function closeWindow(value:String):void {
+				if (_netConnection && _netConnection.connected)
+					_netConnection.close();
+			}
+			
+			// Receive message from the publisher
+			public function message2All(message:String):void {
+				messages.text = message;
+			}
+			
+			/**
+			 * 
+			 * onStatusEvent
+			 * 
+			 * This function has been added to implement Client part of
+			 * Server scalability as described on the following link :
+			 * 
+			 * http://monasolutions.github.io/MonaServer/scalability.html#exchange-data-and-resources 
+			 * 
+			 */
+			 private function onStatusNetStream(evt:Event):void {
+				 
+				 if (evt is AsyncErrorEvent)
+					 consoleRTMP.text +=  "NetStream error : " + AsyncErrorEvent(evt).text + "\n"; 
+				 else {
+					 var event:NetStatusEvent = NetStatusEvent(evt);
+					 consoleRTMP.text +=  "NetStream event : " + event.info.code + "\n";
+					 
+					 switch (event.info.code) {
+						 case "NetStream.Play.Failed": // scalability!
+							 var error:Array = event.info.description.split(" ");
+							 if (error.length > 0) {
+								 var host:String = "rtmfp://" + error[error.length-1];
+								 
+								 _netConnection.close();
+								 _netConnection.connect(host);
+							 }
+							 break;
+					 }
+				 }
+			 }
+			
+			// Manage NetConnection and NetStream success
+			private function onStatusNetConnection(event:NetStatusEvent):void {
+				
+				consoleRTMP.text += 'NetConnection event : ' + event.info.code + "\n";
+				switch (event.info.code) {
+					case "NetConnection.Connect.Success":
+						// Classic listening
+						if (group.text == "") {
+							consoleRTMP.text += "New NetStream classic\n";
+							_receiveNS = new NetStream(_netConnection);
+							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
+							_receiveNS.play(_name2);
+							_vid.attachNetStream(_receiveNS);
+						} else { // Netgroup listening
+							
+							var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
+							groupSpec.peerToPeerDisabled = false; 
+							groupSpec.serverChannelEnabled=true; 
+							groupSpec.ipMulticastMemberUpdatesEnabled=true; 
+							groupSpec.multicastEnabled=true; 
+							groupSpec.postingEnabled=true;
+							var groupId:String = groupSpec.groupspecWithAuthorizations(); 
+							
+							consoleRTMP.text += "GroupSpec created : " + groupId + "\n";
+							_receiveNS = new NetStream(_netConnection, groupId);
+							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
+							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
+							_receiveNS.inBufferSeek = false;
+							_receiveNS.client=this;
+							
+							_netGroup = new NetGroup(_netConnection,groupId); 
+							_netGroup.receiveMode = NetGroupReceiveMode.NEAREST;
+							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
+								consoleRTMP.text +=  "NetGroup event : " + evt.info.code + "\n"; 
+							});
+						}
+						break;
+					case "NetStream.Connect.Success": // Group connection
+						if (group.text != "") {
+							_receiveNS.play(_name2);
+							_vid.attachNetStream(_receiveNS);
+						}
+						break;
+				}
+			}
+			
+			// Connect to the HTTP Progressive link
+			private function connectHTTP():void {
+				video.source = address.text;
+				video.play();
+			}
+			
+			// Connect to the RTMP/RTMFP link
+			private function connectVideo2():void {
+				
+				var lastSlash:int = address2.text.lastIndexOf("/");
+				_domainNPath2=address2.text.substr(0,lastSlash);
+				_name2=address2.text.substr(lastSlash+1);
+				if (_netConnection.connected)
+					_netConnection.close();
+
+				_netConnection.connect(_domainNPath2);
+			}
+			
+			/***
+			 * FullScreen button
+			 * 
+			 ***/
+			private function onFullScreen():void {
+				containerVideo.removeChild(video2);
+				stage.addChild(video2);
+				stage.displayState = StageDisplayState.FULL_SCREEN;
+				_vid.width = stage.width;
+				_vid.height = stage.height;
+				video2.width = stage.width;        //Optional
+				video2.height = stage.height;        //Optional
+				video2.x = 0;
+				video2.y = 0;
+				stage.addEventListener(FullScreenEvent.FULL_SCREEN, onEscapeFullScreen);			
+			}
+			
+			// Called when ESCAPE is pressed and FullScreen is ON
+			private function onEscapeFullScreen(event:FullScreenEvent):void {
+				if(!event.fullScreen) {
+					stage.removeChild(video2);
+					containerVideo.addChild(video2);
+					_vid.width = 400;
+					_vid.height = 300;
+					video2.percentWidth = video2.percentHeight = 100;    //Optional
+					stage.removeEventListener(FullScreenEvent.FULL_SCREEN, onEscapeFullScreen);
+				}
+			}
+			
+		]]>
+	</fx:Script>
+	
+	<mx:VBox>
+		<mx:Label text="HTTP Progressive : " fontWeight="bold"/>
+		<mx:HBox>
+			<mx:VBox width="450">
+				<mx:HBox>
+					<mx:TextInput id="address" width="300" text="http://127.0.0.1/test123.flv"/>
+					<mx:Button id="change" label="Connect" click="connectHTTP()"/>
+				</mx:HBox>
+			</mx:VBox>
+			<mx:VideoDisplay id="video" width="400" height="300"/>
+		</mx:HBox>
+		<mx:Label text="RTMP/RTMFP : " fontWeight="bold"/>
+		<mx:HBox>
+			<mx:VBox width="450" height="300">
+				<mx:HBox>
+					<mx:TextInput id="address2" width="300" text="rtmfp://127.0.0.1/test123"/>
+					<mx:Button id="change2" label="Connect" click="connectVideo2()"/>
+				</mx:HBox>
+				<mx:HBox width="100%">
+					<mx:Label text="NetGroup* : "/>
+					<mx:TextInput width="100%" id="group" text="grouptest"/>
+				</mx:HBox>
+				<mx:Label text="*: No NetGroup if empty" fontStyle="italic"/>
+				<s:TextArea width="100%" height="100%" id="consoleRTMP" visible="false"/>
+			</mx:VBox>
+			<mx:VBox id="containerVideo" width="400" height="300">
+				<mx:UIComponent id="video2" width="100%" height="100%"/>
+			</mx:VBox>
+			<mx:Button id="btFullScreen" click="onFullScreen()" label="Full Screen"/>
+		</mx:HBox>
+		<mx:HBox width="100%">
+		  <mx:Label text="Messages : "/>
+		  <mx:TextInput width="100%" id="messages" editable="false"/>
+		</mx:HBox>
+	</mx:VBox>
+</mx:Application>

@@ -1,0 +1,766 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+This sample is a modified version of the Meeting Sample application available here : http://www.adobe.com/devnet/adobe-media-server/articles/real-time-collaboration.html (Original author: Jozsef Vass)
+-->
+
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="955" minHeight="600" applicationComplete="init()" backgroundColor="0x303030">
+	<fx:Script>
+		<![CDATA[
+			import flash.events.Event;
+			
+			import mx.collections.ArrayList;
+			import mx.controls.Alert;
+			import mx.core.FlexGlobals;
+			import mx.core.IFlexDisplayObject;
+			import mx.logging.ILogger;
+			import mx.logging.LogEventLevel;
+			import mx.managers.PopUpManager;
+			
+			private var connectionManager:ConnectionManager = null;
+			private var sessionManager:SessionManager = null;
+			
+			// this is the name of the Mona Application
+			private var ApplicationDefault:String = "clients/meeting";
+			
+			private var ServiceDefault:String = "localhost";
+			private const UserDefault:String = "user";
+			private const MeetingDefault:String = "meeting";
+			
+			private var localSO:SharedObject = null;
+			
+			private static const logger:ILogger = Logger.getLogger("main");
+			
+			// participant list, updated when user added or removed
+			// we need this list so the display can bind to it, but we should be able to bind to SessionManager.participants
+			[Bindable] private var participants:ArrayList = new ArrayList();
+			
+			// available devices
+			[Bindable] private var micNames:ArrayList = new ArrayList();
+			[Bindable] private var cameraNames:ArrayList = new ArrayList();
+			
+			// before Salt
+			private const DefaultMacCamera:String = "USB Video Class Video";
+			
+			private const NellymoserRates:ArrayList = new ArrayList(["5", "8", "11", "16", "22", "44"]);
+			
+			// charts
+			private const StatisticsLength:int = 30;
+			private var audioRate:Array = new Array();
+			[Bindable] private var audioRateDisplay:ArrayList = new ArrayList();
+			private var videoRate:Array = new Array();
+			[Bindable] private var videoRateDisplay:ArrayList = new ArrayList();
+			private var srtt:Array = new Array();
+			[Bindable] private var srttDisplay:ArrayList = new ArrayList();
+			
+			private var activityTimer:Timer = null;
+			
+			[Bindable] private var loginWindow:LoginWindow = null;
+			
+			private function init():void {
+				// Initiate parameters
+				ApplicationDefault = FlexGlobals.topLevelApplication.parameters.pathname;
+				ServiceDefault = FlexGlobals.topLevelApplication.parameters.host;
+				
+				status("Player: " + Capabilities.version, LogEventLevel.INFO);
+				
+				localSO = SharedObject.getLocal("VideoMeeting");
+				
+				// statistics timer
+				activityTimer = new Timer(1000);
+				activityTimer.addEventListener(TimerEvent.TIMER, onActivityTimer);
+				
+				clearStats();
+				
+				toReady();
+			}
+			
+			private function initSettings():void
+			{
+				var mics:Array = Microphone.names;
+				if (mics)
+					micNames.source = mics;
+				else
+					status("No microphone available.", LogEventLevel.INFO);
+				
+				var cameras:Array = Camera.names;
+				if (cameras)
+					cameraNames.source = cameras;
+				else
+					status("No camera available.", LogEventLevel.INFO);
+				
+				// set Mac default camera
+				var cameraIndex:int = 0;
+				var defaultFound:Boolean = false;
+				if (Capabilities.os.search("Mac") != -1)
+				{
+					for (cameraIndex = 0; cameraIndex < cameras.length; cameraIndex++)
+					{
+						if (cameras[cameraIndex] == DefaultMacCamera)
+						{
+							defaultFound = true;
+							break;
+						}
+					}	
+				}
+				
+				if (defaultFound)
+					sessionManager.settings.cameraIndex = cameraIndex;
+				else
+					sessionManager.settings.cameraIndex = 0;
+				sessionManager.settings.action = Settings.SET_CAMERA;
+				sessionManager.updateSettings();
+				
+				cameraSelection.selectedIndex = sessionManager.settings.cameraIndex;
+				
+				// set ui according to default settings
+				micSelection.selectedIndex = sessionManager.settings.microphoneIndex;
+				if (SoundCodec.SPEEX == sessionManager.settings.codec)
+					speexRadioButton.selected = true;	
+				else
+					nellymoserRadioButton.selected = true;
+					
+				speexQualitySelector.selectedIndex = sessionManager.settings.speexQuality;
+				for (var i:int = 0; i < NellymoserRates.length; i++)
+				{
+					if (int(NellymoserRates.getItemAt(i)) == sessionManager.settings.nellymoserRate)
+					{
+						nellymoserRateSelector.selectedIndex = i;
+						break;
+					}
+				}
+			}
+			
+			private function cancelRegister(e:Event):void {
+				
+				if (connectionManager) {
+					connectionManager.unregister();
+					connectionManager = null;
+				}
+				
+				toReady("Registration cancelled.");
+			}
+			
+			private function register(e:Event):void {
+				connectionManager = new ConnectionManager();
+				connectionManager.addEventListener(ConnectionManager.ERROR, registerFailed);
+				connectionManager.addEventListener(ConnectionManager.SUCCESS, registerSuccess);
+				connectionManager.addEventListener(ConnectionManager.FAILED, registerFailed);
+				connectionManager.addEventListener(ConnectionManager.CHANGE, registerChange);
+				connectionManager.host = loginWindow.serviceInput.text;
+				connectionManager.application = ApplicationDefault;
+				connectionManager.user = loginWindow.userInput.text;
+				connectionManager.meeting = loginWindow.meetingInput.text;
+				
+				connectionManager.register(loginWindow.rtmpSelection.selected);
+				
+				loginWindow.currentState = "Registering";
+				loginWindow.registerStatusLabel.text = "Connecting to " + (loginWindow.rtmpSelection.selected ? "rtmp" : "rtmfp") + "://" +  loginWindow.serviceInput.text + "/" + ApplicationDefault;
+				loginWindow["cancelButton"].addEventListener("click", cancelRegister);
+			}
+			
+			private function registerFailed(e:Event):void {
+				status("Registration failed: " + e.type, LogEventLevel.DEBUG);
+				
+				callLater(toReady, ["Registration failed."]);
+			}
+			
+			private function registerSuccess(e:Event):void
+			{
+				// save meeting information to shared object
+				localSO.data.user = loginWindow.userInput.text;
+				localSO.data.meeting = loginWindow.meetingInput.text;
+				localSO.data.service = loginWindow.serviceInput.text;
+				localSO.flush();
+				
+				// state change
+				callLater(toMeeting);
+				
+				sessionManager = new SessionManager(loginWindow.meetingInput.text, loginWindow.userInput.text);
+				sessionManager.addEventListener(SessionManager.TOPOLOGY_CHANGE, sessionChange);
+				sessionManager.addEventListener(ParticipantEvent.ADD, participantAdd);
+				sessionManager.addEventListener(ParticipantEvent.REMOVE, participantRemove);
+				sessionManager.addEventListener(ParticipantEvent.CHANGE, participantChange);
+				sessionManager.addEventListener(MessageEvent.MESSAGE, messageReceived);
+				sessionManager.connection = connectionManager.connection;
+			}
+			
+			private function registerChange(e:Event):void {
+				loginWindow.registerStatusLabel.text = "Connecting to " + "rtmp://" +  loginWindow.serviceInput.text + "/" + Application;
+			}
+			
+			private function sessionChange(e:Event):void {
+				status("Media type: " + sessionManager.getMediaType(), LogEventLevel.INFO);
+				
+				if (mediaTopologyLabel)
+					mediaTopologyLabel.text = sessionManager.getMediaType();
+			}
+			
+			private function participantAdd(e:ParticipantEvent):void {				
+				participants.addItem(e.participant);
+			}
+			
+			private function participantRemove(e:ParticipantEvent):void
+			{
+				if (remoteVideoDisplay.contains(e.participant.video))
+					remoteVideoDisplay.removeChild(e.participant.video);
+
+				participants.removeItem(e.participant);
+			}
+			
+			private function participantChange(e:ParticipantEvent):void
+			{	
+			}
+			
+			private function messageReceived(e:MessageEvent):void {
+				messageOutput.text += e.from + ": " + e.message + "\n";
+			}
+			
+			private function toReady(msg:String = null):void
+			{							
+				if (loginWindow) {
+					PopUpManager.removePopUp(loginWindow);
+					loginWindow = null;
+				}
+				
+				loginWindow = LoginWindow(PopUpManager.createPopUp(this, LoginWindow, true));
+				loginWindow.closeButton.visible = false;
+				if (msg && msg.length > 0)
+					loginWindow.registerStatusLabel.text = msg;
+
+				loginWindow["registerButton"].addEventListener("click", register);
+				
+				if (localSO.data.hasOwnProperty("service"))
+					loginWindow.serviceInput.text = localSO.data.service;
+				else
+					loginWindow.serviceInput.text = ServiceDefault;
+
+				if (localSO.data.hasOwnProperty("meeting"))
+					loginWindow.meetingInput.text = localSO.data.meeting;
+				else
+					loginWindow.meetingInput.text = MeetingDefault;
+				
+				if (localSO.data.hasOwnProperty("user"))
+					loginWindow.userInput.text = localSO.data.user;
+				else
+					loginWindow.userInput.text = UserDefault;
+				
+				PopUpManager.centerPopUp(loginWindow);
+				
+				currentState = "Ready";
+			}
+			
+			private function toMeeting():void {	
+				PopUpManager.removePopUp(loginWindow);
+				
+				currentState = "Meeting";
+				
+				initSettings();
+				
+				activityTimer.start();
+			}
+			
+			private function endSession():void
+			{
+				for (var i:int = 0; i < participants.length; i++)
+				{
+					if (participants.getItemAt(i).video && remoteVideoDisplay.contains(participants.getItemAt(i).video))
+						remoteVideoDisplay.removeChild(participants.getItemAt(i).video);	
+				}
+				
+				sessionManager.close();
+				
+				sessionManager = null;
+				
+				connectionManager.unregister();
+				connectionManager = null;
+				
+				sendAudioCheckbox.selected = false;
+				sendVideoCheckbox.selected = false;
+				localVideoDisplay.attachCamera(null);
+				localVideoDisplay.visible = false;
+				receiveVideoCheckbox.enabled = true;
+				receiveAudioCheckbox.enabled = true;
+				
+				participants.removeAll();
+				
+				messageOutput.text = "";
+				messageInput.text = "";
+				
+				statusArea.text = "";
+				
+				clearStats();
+				
+				activityTimer.stop();
+				
+				toReady("Meeting ended.");
+			}
+			
+			private function sendMessage():void {
+				if (messageInput.text.length > 0) 
+				{
+					messageOutput.text += loginWindow.userInput.text + ": " + messageInput.text + "\n";
+					sessionManager.sendMessage(messageInput.text);
+					messageInput.text = "";
+				}
+			}
+			
+			private function sendAudio():void
+			{
+				if (sessionManager)
+					sessionManager.sendAudio = sendAudioCheckbox.selected;
+			}
+			
+			private function sendVideo():void {
+				if (sessionManager)
+					sessionManager.sendVideo = sendVideoCheckbox.selected;
+				
+				if (sendVideoCheckbox.selected)
+				{
+					var camera:Camera = Camera.getCamera();
+					if (camera) {
+						localVideoDisplay.visible = true;
+						localVideoDisplay.attachCamera(camera);
+					}
+					else
+						status("No camera available", LogEventLevel.INFO);
+				}
+				else {
+					localVideoDisplay.visible = false;
+					localVideoDisplay.attachCamera(null);
+				}
+			}
+			
+			private function receiveAudio():void {
+				var p:Participant = participantsList.selectedItem;
+				if (p)
+					p.receiveAudio = receiveAudioCheckbox.selected;
+			}
+			
+			private function receiveVideo():void {
+				var p:Participant = participantsList.selectedItem;
+				if (p)
+					p.receiveVideo = receiveVideoCheckbox.selected;
+			}
+			
+			private function status(msg:String, level:int = LogEventLevel.INFO):void {
+				if (statusArea)
+					statusArea.text += msg + "\n";
+				
+				logger.log(level, msg);
+			}
+			
+			private function onActivityTimer(e:TimerEvent  = null):void {
+				
+				var info:NetStreamInfo = null;
+				if (!participantsList.selectedItem)
+					statisticsUserLabel.text = "Please select a user from list";
+				else {
+					var user:Participant = participantsList.selectedItem as Participant;
+					statisticsUserLabel.text = user.userName;
+					info = user.streamInfo;
+				}
+
+				audioRate.shift();
+				var a:Object = { Recv:0 };
+				if (info)
+					a.Recv = info.audioBytesPerSecond * 8 / 1024;
+					
+				a.Sent = sessionManager.sentAudioRate * 8 / 1024;
+				audioRate.push(a);
+				audioRateDisplay.source = audioRate;
+				
+				videoRate.shift();
+				var v:Object = { Recv:0 };
+				if (info)
+					v.Recv = info.videoBytesPerSecond * 8 / 1024;
+
+				v.Sent = sessionManager.sentVideoRate * 8 / 1024;
+				videoRate.push(v);
+				videoRateDisplay.source = videoRate;
+				
+				srtt.shift();
+				var s:Object = new Object;
+				if (info)
+					s.Data = info.SRTT;
+				else
+					s.Data = 0;
+				srtt.push(s);
+				srttDisplay.source = srtt;
+			}
+			
+			private function micChanged(event:Event):void {
+				
+				sessionManager.settings.action = Settings.SET_MICROPHONE;
+				sessionManager.settings.microphoneIndex = micSelection.selectedIndex;
+				sessionManager.updateSettings();
+			}
+			
+			private function cameraChanged(event:Event):void {
+				
+				sessionManager.settings.action = Settings.SET_CAMERA;
+				sessionManager.settings.cameraIndex = cameraSelection.selectedIndex;
+				sessionManager.updateSettings();
+			}
+			
+			private function codecChanged():void {	 
+				
+				sessionManager.settings.action = Settings.SET_CODEC;
+				sessionManager.settings.codec = codecGroup.selectedValue as String;
+				sessionManager.updateSettings();
+				
+				
+				// view change
+				if (SoundCodec.SPEEX == sessionManager.settings.codec)
+					codecPropertyStack.selectedIndex = 0;
+				else
+					codecPropertyStack.selectedIndex = 1;
+			}
+			
+			private function speexQuality(e:Event):void {
+				
+				sessionManager.settings.action = Settings.SET_SPEEX_QUALITY;
+				sessionManager.settings.speexQuality = ComboBox(e.target).selectedItem;
+				sessionManager.updateSettings();
+			}
+			
+			private function changeSilenceLevel(e:Event):void {
+				
+				sessionManager.settings.action = Settings.SET_MICROPHONE;
+				sessionManager.settings.silenceLevel = ComboBox(e.target).selectedItem;
+				sessionManager.updateSettings();
+			}
+			
+			private function changeEcho(e:Event):void {
+				
+				sessionManager.settings.action = Settings.SET_MICROPHONE;
+				sessionManager.settings.echoSuppression = e.target.selected;
+				sessionManager.updateSettings();
+			}
+			
+			private function nellymoserRate(e:Event):void {
+				
+				sessionManager.settings.action = Settings.SET_NELLYMOSER_RATE;
+				sessionManager.settings.nellymoserRate = ComboBox(e.target).selectedItem;
+				sessionManager.updateSettings();
+			}
+			
+			private function userListChange():void
+			{
+				// remove all video
+				for (var i:int = 0; i < participants.length; i++)
+				{
+					if (participants.getItemAt(i).video && remoteVideoDisplay.contains(participants.getItemAt(i).video))
+					{
+						remoteVideoDisplay.removeChild(participants.getItemAt(i).video);	
+					}
+				}
+				
+				var p:Participant = participantsList.selectedItem;
+				if (p)
+				{
+					if (!p.self)
+					{
+						remoteVideoDisplay.addChild(p.video);
+					}
+					
+					receiveAudioCheckbox.selected = p.receiveAudio;
+					receiveAudioCheckbox.enabled = !p.self;
+					
+					receiveVideoCheckbox.selected = p.receiveVideo;
+					receiveVideoCheckbox.enabled = !p.self;
+				}
+				else
+				{
+					receiveAudioCheckbox.selected = false;
+					receiveAudioCheckbox.enabled = true;
+					
+					receiveVideoCheckbox.selected = false;
+					receiveVideoCheckbox.enabled = true;
+				}
+				
+				clearStats();
+			}
+			
+			private function clearStats():void
+			{
+				// clear statistics
+				while (audioRate.length > 0)
+				{
+					audioRate.pop();	
+				}
+				while (videoRate.length > 0)
+				{
+					videoRate.pop();
+				}
+				while (srtt.length > 0)
+				{
+					srtt.pop();
+				}
+				
+				for (var i:int = 0; i < StatisticsLength; i++)
+				{
+					var o:Object = new Object();
+					o.Recv = 0;
+					o.Sent = 0;
+					o.Data = 0;
+					audioRate.push(o);
+					videoRate.push(o);
+					srtt.push(o);
+				}
+				videoRateDisplay.source = videoRate;
+				audioRateDisplay.source = audioRate;
+				srttDisplay.source = srtt;
+			}
+			
+			private function deviceInfo():void
+			{
+				if (sessionManager)
+				{
+					var mic:Microphone = sessionManager.getMicrophone();
+					if (mic)
+					{
+						var s:String = "Using microphone " + mic.index + ": " +  mic.name + "\n"; 
+						s += "codec: " + mic.codec + "\n"
+							+ "framesPerPacket: " + mic.framesPerPacket + "\n"
+							+ "encodeQuality: " + mic.encodeQuality + "\n";
+						
+						// 10.1 Argo
+						if (mic.hasOwnProperty("noiseSuppressionLevel"))
+						{
+							s += "noiseSuppressionLevel: " + (mic as Object).noiseSuppressionLevel + "\n";
+						}
+						
+						if (mic.hasOwnProperty("enableVAD"))
+						{
+							s += "enableVAD: " + (mic as Object).enableVAD + "\n";
+						}
+						
+						s += "rate: " + mic.rate + "\n"
+							+ "activityLevel: " + mic.activityLevel + "\n"
+							+ "gain: " + mic.gain + "\n"
+							+ "muted: " + mic.muted + "\n"
+							+ "silenceLevel: " + mic.silenceLevel + "\n"
+							+ "silenceTimeout: " + mic.silenceTimeout + "\n"
+							+ "useEchoSuppression: " + mic.useEchoSuppression;
+						
+						status(s);
+					}
+					else
+					{
+						status("No microphone available");
+					}
+				}
+			}
+		]]>
+	</fx:Script>
+	
+	<s:states>
+		<s:State name="Ready"/>
+		<s:State name="Meeting"/>
+	</s:states>
+	
+	<s:layout>
+		<s:VerticalLayout/>
+	</s:layout>
+	
+	<fx:Style>
+		@namespace s "library://ns.adobe.com/flex/spark";
+		@namespace mx "library://ns.adobe.com/flex/mx";
+		
+		.buttonStyle {
+			color: "0x000000";
+			textRollOverColor: "0x000000";
+			textSelectedColor: "0x000000";
+		}
+		
+		.checkboxStyle
+		{
+			color: "0xffffff";
+			textRollOverColor: "0xffffff";
+			textSelectedColor: "0xffffff";
+		}
+	</fx:Style>
+	
+	<fx:Declarations>
+		<s:RadioButtonGroup id="codecGroup"  change="codecChanged()"/>
+		<s:RadioButtonGroup id="protocolGroup"/>
+	</fx:Declarations>
+	
+	<s:VGroup>
+		<s:HGroup includeIn="Meeting" verticalAlign="middle">	
+			<s:Label text="{'Logged in as ' + loginWindow.userInput.text + ' to meeting ' + loginWindow.meetingInput.text}" color="0xffffff" />
+			<s:Button label="END MEETING" click="endSession()" styleName="buttonStyle"/>
+		</s:HGroup>
+		
+		<s:Label includeIn="Ready" text="Not logged in." color="0xffffff" height="21" verticalAlign="middle"/>
+		
+		<s:HGroup>
+			<mx:Canvas>
+				<mx:VideoDisplay id="remoteVideoDisplay" width="320" height="240" />
+				<mx:VideoDisplay id="localVideoDisplay" width="80" height="60" x="10" y="170" visible="false"/>
+			</mx:Canvas>
+			<s:VGroup>
+				<s:Label text="Select Participants to View Video" color="0xffffff"/>
+				<s:List id="participantsList" width="200" height="175" dataProvider="{participants}" itemRenderer="ParticipantListRenderer" change="userListChange()"/>
+				<s:HGroup verticalAlign="middle">
+					<s:Label text="Receive:" color="0xffffff"/>
+					<s:CheckBox id="receiveAudioCheckbox" label="Audio" selected="false" change="receiveAudio()" styleName="checkboxStyle"/>
+					<s:CheckBox id="receiveVideoCheckbox" label="Video" selected="false" change="receiveVideo()" styleName="checkboxStyle"/>
+				</s:HGroup>
+				<s:HGroup verticalAlign="middle">
+					<s:Label text="Send:" color="0xffffff"/>
+					<mx:Spacer width="9"/>
+					<s:CheckBox id="sendAudioCheckbox" label="Audio" selected="false" change="sendAudio()" styleName="checkboxStyle"/>
+					<s:CheckBox id="sendVideoCheckbox" label="Video" selected="false" change="sendVideo()" styleName="checkboxStyle"/>
+				</s:HGroup>
+			</s:VGroup>
+		</s:HGroup>
+		
+		<s:HGroup>
+			<s:TextArea id="messageOutput" width="525" height="125" verticalScrollPolicy="auto"/>
+		</s:HGroup>
+		
+		<s:HGroup>
+			<s:TextInput id="messageInput" width="450" enter="sendMessage()"/>
+			<s:Button label="SEND" click="sendMessage()" styleName="buttonStyle"/>
+		</s:HGroup>
+		
+		<s:ButtonBar dataProvider="{optionsStack}"  width="525"/>
+		<mx:ViewStack id="optionsStack" borderStyle="solid" creationPolicy="all" width="525" height="150">
+			
+			<s:NavigatorContent id="statusDisplay" label="STATUS" color="0xffffff">
+				<s:layout>
+					<s:VerticalLayout/>
+				</s:layout>
+				
+				<s:TextArea id="statusArea" width="523" height="120" editable="false" verticalScrollPolicy="auto" color="0x00000000"/>
+				
+				<s:HGroup>
+					<s:Button label="Clear" click="statusArea.text=''" styleName="buttonStyle" />
+					<s:Button label="Device Info" click="deviceInfo()" styleName="buttonStyle" />
+				</s:HGroup>
+			</s:NavigatorContent>
+			
+			<s:NavigatorContent id="devices" label="DEVICES" color="0xffffff">
+				<s:layout>
+					<s:VerticalLayout/>
+				</s:layout>
+				
+				<s:HGroup verticalAlign="middle">
+					<s:Label text="Audio capture: " color="0xffffff"/>
+					<s:DropDownList id="micSelection" dataProvider="{micNames}" change="micChanged(event)" color="0x00000000" width="300"/>
+				</s:HGroup>
+				<s:HGroup verticalAlign="middle">
+					<s:Label text="Video capture: " color="0xffffff"/>
+					<s:DropDownList id="cameraSelection" dataProvider="{cameraNames}" change="cameraChanged(event)" color="0x00000000" width="300"/>
+				</s:HGroup>
+			</s:NavigatorContent>
+			
+			<s:NavigatorContent id="media" label="AUDIO/VIDEO" color="0xffffff">
+				<s:layout>
+					<s:VerticalLayout/>
+				</s:layout>
+				
+				<s:HGroup>
+					<s:RadioButton id="speexRadioButton" group="{codecGroup}" value="{SoundCodec.SPEEX}" label="Speex" />
+					<s:RadioButton id="nellymoserRadioButton" group="{codecGroup}" value="{SoundCodec.NELLYMOSER}" label="Nellymoser" />
+				</s:HGroup>
+				<mx:ViewStack id="codecPropertyStack" creationPolicy="all">
+					<s:NavigatorContent>
+						<s:HGroup verticalAlign="middle">
+							<s:Label text="Encode quality: " />
+							<s:ComboBox id="speexQualitySelector" change="speexQuality(event)" color="0x00000000">
+								<s:dataProvider>
+									<s:ArrayList>
+										<fx:int>0</fx:int>
+										<fx:int>1</fx:int>
+										<fx:int>2</fx:int>
+										<fx:int>3</fx:int>
+										<fx:int>4</fx:int>
+										<fx:int>5</fx:int>
+										<fx:int>6</fx:int>
+										<fx:int>7</fx:int>
+										<fx:int>8</fx:int>
+										<fx:int>9</fx:int>
+										<fx:int>10</fx:int>
+									</s:ArrayList>
+								</s:dataProvider>
+							</s:ComboBox>
+						</s:HGroup>
+					</s:NavigatorContent>
+					<s:NavigatorContent>
+						<s:HGroup verticalAlign="middle">
+							<s:Label text="Encode rate [kHz]: " />
+							<s:ComboBox id="nellymoserRateSelector" dataProvider="{NellymoserRates}" change="nellymoserRate(event)" color="0x00000000"/>
+						</s:HGroup>
+					</s:NavigatorContent>
+				</mx:ViewStack>
+				<s:HGroup verticalAlign="middle">
+					<s:Label text="Silence level: " />
+					<s:ComboBox id="silenceSelector" selectedIndex="0" change="changeSilenceLevel(event)" color="0x00000000">
+						<s:dataProvider>
+							<s:ArrayList>
+								<fx:int>0</fx:int>
+								<fx:int>10</fx:int>
+								<fx:int>20</fx:int>
+								<fx:int>30</fx:int>
+								<fx:int>40</fx:int>
+								<fx:int>50</fx:int>
+								<fx:int>60</fx:int>
+								<fx:int>70</fx:int>
+								<fx:int>80</fx:int>
+								<fx:int>90</fx:int>
+								<fx:int>100</fx:int>
+							</s:ArrayList>
+						</s:dataProvider>
+					</s:ComboBox>
+				</s:HGroup>
+				<s:HGroup verticalAlign="middle">
+					<s:Label text="Echo Cancellation: " />
+					<s:CheckBox id="echo" change="changeEcho(event)" selected.Ready="true"/>
+				</s:HGroup>
+			</s:NavigatorContent>
+			
+			<s:NavigatorContent id="statistics" label="STATISTICS" color="0xffffff">
+				<mx:Canvas height="148" width="523">
+					<s:VGroup>
+						<s:HGroup>
+							<s:Label text="Media topology: "/>
+							<s:Label id="mediaTopologyLabel" text="{SessionManager.MEDIA_NONE}"/>
+						</s:HGroup>
+						
+						<s:HGroup>
+							<s:Label text="Statistics: "/>
+							<s:Label id="statisticsUserLabel"/>
+						</s:HGroup>
+						
+						<mx:LineChart id="audioRateChart" dataProvider="{audioRateDisplay}" height="105" width="485" color="0xffffff">
+							<mx:series>
+								<mx:LineSeries yField="Recv" displayName="Received Audio Rate [kbps]"/>
+								<mx:LineSeries yField="Sent" displayName="Sent Audio Rate (overall) [kbps]"/>
+							</mx:series>
+						</mx:LineChart>
+						<mx:Legend dataProvider="{audioRateChart}" direction="horizontal" color="0xffffff"/>
+						<mx:LineChart id="videoRateChart" dataProvider="{videoRateDisplay}" height="105" width="485" color="0xffffff">
+							<mx:series>
+								<mx:LineSeries yField="Recv" displayName="Received Video Rate [kbps]"/>
+								<mx:LineSeries yField="Sent" displayName="Sent Video Rate (overall) [kbps]"/>
+							</mx:series>
+						</mx:LineChart>
+						<mx:Legend dataProvider="{videoRateChart}" direction="horizontal" color="0xffffff"/>
+						<mx:LineChart id="rttChart" dataProvider="{srttDisplay}" height="105" width="485" color="0xffffff">
+							<mx:series>
+								<mx:LineSeries yField="Data" displayName="RTT [ms]" />
+							</mx:series>
+						</mx:LineChart>
+						<mx:Legend dataProvider="{rttChart}" color="0xffffff"/>
+					</s:VGroup>
+				</mx:Canvas>
+			</s:NavigatorContent>
+			
+		</mx:ViewStack>
+	</s:VGroup>
+	
+</s:Application>

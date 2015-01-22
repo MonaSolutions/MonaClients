@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+
+ADOBE SYSTEMS INCORPORATED
+Copyright 2010 Adobe Systems Incorporated
+All Rights Reserved.
+
+NOTICE: Adobe permits you to use, modify, and distribute this file
+in accordance with the terms of the license agreement accompanying it.
+
+Author: Jozsef Vass
+-->
+
+<s:ItemRenderer xmlns:fx="http://ns.adobe.com/mxml/2009" 
+				xmlns:s="library://ns.adobe.com/flex/spark" 
+				xmlns:mx="library://ns.adobe.com/flex/mx" 
+				autoDrawBackground="true">
+	
+	<fx:Script>
+		<![CDATA[
+			private function getUserName(data:Object):String
+			{
+				var p:Participant = data as Participant;
+				if (p)
+				{
+					return p.userName;
+				}
+				
+				return "";
+			}
+			
+			private function isSelf(data:Object):Boolean
+			{
+				var p:Participant = data as Participant;
+				if (p)
+				{
+					return p.self;
+				}
+				
+				return false;
+			}
+			
+			private function getConnection(data:Object):String
+			{
+				var p:Participant = data as Participant;
+				if (p)
+				{
+					return p.protocol;
+				}
+				
+				return "";
+			}
+		]]>
+	</fx:Script>
+	
+	<s:HGroup>
+		<mx:Spacer width="1"/>
+		<s:Label height="22" verticalAlign="middle" text="{getUserName(data) + ' (' + getConnection(data) + ')'}" fontStyle="{isSelf(data) ? 'italic' : 'normal'}"/>
+	</s:HGroup>
+	
+</s:ItemRenderer>

@@ -1,0 +1,151 @@
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Chat JavaScript Client Test</title>
+    <style type="text/css">
+        #listUsers {
+            height:95%;
+            width:100%;
+            border-color: #333333;
+            border: solid;
+            border-width: 1px;
+            padding: 0 0;
+            margin: auto;
+        }
+        li {
+            list-style-type: none;   
+        }
+        .selected {
+            background: #0070C9;   
+        }
+    </style>
+    <script type="text/javascript">
+      var socket;
+      var _name = ""; // Name of the user
+      
+        // Reception handler
+        function onMessage(msg) {
+            try { // try to parse data
+                data = JSON.parse(msg.data);
+                switch (data[0]) {
+                  case "onReception":
+                      onReception(data[1], data[2]);
+                      break;
+                  case "onEvent":
+                      onEvent(data[1], data[2]);
+                      break;
+                }
+            } catch(exception) {}
+        }
+      
+        function selectUser() {
+            // unselect all other users
+            var users = window.document.getElementById("listUsers").children;
+            for (var i=0; i < users.length; i++) { 
+                if ((users[i] != this) && (users[i].className != ''))
+                    users[i].className = '';
+            }
+            // Select the user
+            this.className = (this.className == '')? 'selected' : '';   
+        }
+      
+        // Manage the user list
+        function onEvent(event, user) {
+            if (user == _name)
+                return;
+            
+            switch(event) {
+              case "connection":
+                var listUsers = document.getElementById("listUsers");
+                var newUser = document.createElement("li");
+                newUser.id = "nom_" + user;
+                newUser.onclick = selectUser;
+                newUser.innerHTML = user;
+                listUsers.appendChild(newUser);
+                break;
+              case "disconnection":
+                var listUsers = document.getElementById("listUsers");
+                var oldUser = document.getElementById("nom_" + user);
+                listUsers.removeChild(oldUser);
+                break;
+            }
+        }
+      
+        // Write message in the text area and scroll up
+        function onReception(prompt, message) {
+          
+            var textArea = window.document.getElementById("response");
+            textArea.value += prompt + message + '\n';
+            textArea.scrollTop = textArea.scrollHeight;
+        }
+        
+        // Connection handler : request name and send it to server
+        function onConnection() {
+            document.getElementById("error").value = 'socket opened'; 
+            document.getElementById("btConnect").disabled = true;
+            document.getElementById("message").disabled = false;
+            
+            _name = prompt("Please enter your name","User");
+            if (_name!=null) {
+                var data = ["onIdentification", _name];
+                data = JSON.stringify(data);
+                socket.send(data);
+            }
+        }
+        
+        // Disconnection handler
+        function onDisconnection() { 
+            document.getElementById("error").value = 'socket closed'; 
+            document.getElementById("btConnect").disabled = false;
+            document.getElementById("message").disabled = true;
+        }
+        
+        // Socket connector
+        function createWebSocket() {
+            host = "ws://" + window.location.host + "/" + window.location.pathname;
+            
+            if(window.MozWebSocket)
+                window.WebSocket=window.MozWebSocket;
+            if(!window.WebSocket) {
+                alert("Your browser don't support webSocket!");
+                return false;
+            }
+            
+            socket = new WebSocket(host);
+            socket.onopen = onConnection;
+            socket.onclose = onDisconnection;
+            socket.onerror = function() { document.getElementById("error").value = 'An error occurs'; }
+            socket.onmessage = onMessage;
+            return true;
+        }
+         
+        // Send message event
+        function sendMessage() {
+            var data = document.getElementById("message").value;
+            if (data!="") {
+                socket.send('[["' + data + '"]]');
+                document.getElementById("message").value = "";
+            }
+        }
+       
+        createWebSocket();
+    </script>
+</head>
+<body>
+    <b>Status :</b> <input id="error" readonly=1 style="color:red"/> <input id="btConnect" type="button" value="Connect" onclick="createWebSocket();" />
+    <div style="height:95%; width:100%">
+        <div style="width:80%; height:100%; float: left">
+            <textarea style="height:95%; width:100%" id="response" cols="80" autocomplete="off" readonly="true"></textarea>
+            <form action="" onsubmit="sendMessage(); return false;">
+                <input type="text" id="message" style="width:100%"/>
+            </form>
+        </div>
+        <div style="width:20%; height:100%; float: left">
+            <ul id="listUsers"></ul>
+            <form action="" onsubmit="sendMessage(); return false;">
+                <input type="button" value="Send" onclick="sendMessage();"/>
+            </form>
+        </div>
+    </div>
+</body>
+<html>

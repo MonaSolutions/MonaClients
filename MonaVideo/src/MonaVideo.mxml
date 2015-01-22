@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="300" minHeight="200" applicationComplete="init()" backgroundColor="0x303030">
+	<fx:Script>
+		<![CDATA[
+			import mx.controls.Alert;
+			import mx.controls.Label;
+			import mx.managers.PopUpManager;
+			import mx.utils.URLUtil;
+			
+			import spark.components.TextSelectionHighlighting;
+			
+			private var _name:String; // Name of the meeting
+			private var _httpUrl:String; // Url of the app
+			
+			private var _url:String;
+			private var _connection:NetConnection=null;
+			
+			private var _loginWindow:LoginWindow=null;
+			
+			private var _mic:Microphone=null;
+			private var _cam:Camera=null;
+			
+			private var _outgoingStream:NetStream=null;
+			private var _incomingStream:NetStream=null;
+			
+			private var _remoteVideo:Video=null;
+			
+			private function init():void {
+				
+				// Generate dynamic url
+				var url:String = loaderInfo.url;
+				var domainNPath:Array = url.match(/(:\/\/.+)\//);
+				if (URLUtil.getProtocol(url) == "file") {
+					Alert.show("Error : MonaVideo can't be loaded locally!");
+				}
+				
+				// Set the local video in the top rigth corner
+				localVideoDisplay.x = screen.width - 90;
+				
+				// Connect to Mona
+				_url = "rtmfp" + domainNPath[1];
+				_httpUrl = "http" + domainNPath[1];
+				_connection = new NetConnection();
+				_connection.addEventListener(NetStatusEvent.NET_STATUS, onStatus);
+				_connection.connect(_url);
+				_connection.client = this;
+			}
+			
+			private function onStatus(event:NetStatusEvent):void {
+				
+				switch(event.info.code) {
+					case "NetConnection.Connect.Success":
+						if (loaderInfo.parameters && loaderInfo.parameters.name) // ?name=...
+							createOrJoin(loaderInfo.parameters.name);
+						else
+							showLogin();
+						break;
+					default:
+						break;
+				}
+			}
+			
+			private function showLogin():void {							
+				if (_loginWindow) {
+					PopUpManager.removePopUp(_loginWindow);
+					_loginWindow = null;
+					if (_remoteVideo)
+						remoteVideoDisplay.removeChild(_remoteVideo);
+					if (_outgoingStream)
+						_outgoingStream.close();
+					if (_incomingStream)
+						_incomingStream.close();
+					panelShare.visible=false;
+				}
+				
+				_loginWindow = LoginWindow(PopUpManager.createPopUp(this, LoginWindow, true));
+				_loginWindow.closeButton.visible = false;
+				
+				_loginWindow["registerButton"].addEventListener("click", function(e:Event):void { createOrJoin(_loginWindow.userInput.text); } );
+				
+				_loginWindow.userInput.text = "MeetingName";
+				
+				PopUpManager.centerPopUp(_loginWindow);
+			}
+			
+			private function createOrJoin(meetingName:String):void {
+				
+				_name = meetingName;
+				_connection.call("sendName", new Responder(onNameCorrect, null), _name);
+			}
+			
+			private function onNameCorrect(session:Object):void {
+				
+				PopUpManager.removePopUp(_loginWindow);
+				
+				_cam = Camera.getCamera();
+				localVideoDisplay.attachCamera(_cam);
+				localVideoDisplay.addEventListener(MouseEvent.MOUSE_DOWN, function(event:MouseEvent):void {
+					localVideoDisplay.startDrag(); // on click the camera can is dragable
+				});
+				localVideoDisplay.addEventListener(MouseEvent.MOUSE_UP, function(event:MouseEvent):void {
+					localVideoDisplay.stopDrag(); // when click is finished the camera is fixed
+				});
+				
+				_mic = Microphone.getMicrophone();
+				
+				// If we are the caller : connect to called
+				if (session)
+					connect2Peer(session.id, session.angle, true);
+				else {
+					panelShare.visible=true;
+					panelShare.y = (screen.height-panelShare.height)/2;
+					shareLink.text=_httpUrl+"/?name="+_name;
+					shareLink.maxWidth = stage.width - 20;
+				}
+			}
+			
+			// Start connection to peer
+			public function connect2Peer(id:String, angle:int, caller:Boolean):void {
+				panelShare.visible=false;
+				_outgoingStream = new NetStream(_connection, NetStream.DIRECT_CONNECTIONS);
+				_outgoingStream.publish(caller? "caller" : "callee");
+				
+				// Attach camera & micro
+				_outgoingStream.attachAudio(_mic);
+				_outgoingStream.attachCamera(_cam);
+				
+				_incomingStream = new NetStream(_connection, id);
+				_incomingStream.play(caller? "callee" : "caller");
+				
+				// Read video!
+				_remoteVideo = new Video();
+				_remoteVideo.x = _remoteVideo.y = 0;
+				_remoteVideo.width = remoteVideoDisplay.width;
+				_remoteVideo.height = remoteVideoDisplay.height;
+				_remoteVideo.attachNetStream(_incomingStream);
+				remoteVideoDisplay.addChild(_remoteVideo);
+				if (angle > 0) { // Rotate the remote video (for mobile peers)
+					var matrix:Matrix = _remoteVideo.transform.matrix;
+					// translation |  x  |  y  |
+					// 0		   |  0  |  0  |
+					// π*1/2       |  0  | -h  |
+					// π           | -w  | -h  |
+					// π*3/2       | -w  |  0  |
+					matrix.translate((angle%4 > 1)? -remoteVideoDisplay.width : 0,((angle+1)%4 > 1)? -remoteVideoDisplay.height : 0);
+					matrix.rotate(Math.PI*(angle/2));
+					if (angle % 2)
+						matrix.scale(remoteVideoDisplay.width/remoteVideoDisplay.height,remoteVideoDisplay.height/remoteVideoDisplay.width);
+					_remoteVideo.transform.matrix = matrix;
+				}
+			}
+			
+			public function onChange(action:String):void {
+				switch(action) {
+				case "disconnect":
+					showLogin();
+					break;
+				case "roomfull":
+					Alert.show("Sorry, this room is already full!");
+					showLogin();
+					break;
+				}
+			}			
+		]]>
+	</fx:Script>
+	
+	
+	
+	<s:VGroup width="100%" height="100%">
+		<mx:Canvas id="canva" width="100%" height="100%">
+			<mx:VideoDisplay id="remoteVideoDisplay" x="0" y="0" width="100%" height="100%"/>
+			<mx:VideoDisplay id="localVideoDisplay" width="80" height="60" x="10" y="10" />
+			<mx:VBox id="panelShare" width="100%" horizontalAlign="center" verticalAlign="middle" visible="false">
+				<mx:Label color="0xFFFFFF" fontSize="24" alpha="0.5" text="Copy this link and share it with someone :" truncateToFit="false"/>
+				<mx:HBox backgroundColor="0x0000BB" alpha="0.5" height="60">
+					<mx:Label color="0xFFFFFF" fontSize="24" alpha="0.5" id="shareLink" text="url to share" selectable="true" truncateToFit="true" width="80%"/>
+				</mx:HBox>
+			</mx:VBox>
+		</mx:Canvas>
+	</s:VGroup>
+	
+</s:Application>

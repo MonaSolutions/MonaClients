@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:fx="http://ns.adobe.com/mxml/2009"
+				xmlns:s="library://ns.adobe.com/flex/spark" 
+				xmlns:mx="library://ns.adobe.com/flex/mx"
+				minWidth="600" minHeight="500" applicationComplete="init();"
+				backgroundColor="#FFFFFF">
+	<fx:Script>
+		<![CDATA[
+			import flash.utils.getTimer;
+			import mx.events.CloseEvent;
+			import mx.utils.URLUtil;
+			
+			public const SIZE_CHUNKS:Number=256000; ///< 256k per chunks
+			private var _file:FileReference = new FileReference();
+			private var _netConnection:NetConnection = new NetConnection();
+			private var _netGroup:NetGroup;
+			public 	var p2pSharedObject:P2PSharedObject;
+			private var _url:String; 
+			private var _groupName:String;
+			private var _timeStart:int; // To calculate time elapsed in download
+			
+			private var _receptionFile:String; // File name if it is a receiver
+			
+			// Connect to MonaServer
+			private function init():void {
+				
+				// Generate dynamic url
+				var url:String = this.loaderInfo.url;
+				var domainNPath:Array = url.match(/(:\/\/.+)\//);
+				if (URLUtil.getProtocol(url) == "file") {
+					writeMessage("Sorry you can't load this application locally");
+					return;
+				}
+				_url = "rtmfp" + domainNPath[1];
+				shareLink.text = "http" + domainNPath[1] + "/?file=" ;
+				
+				// ?file=...
+				if (loaderInfo.parameters && loaderInfo.parameters.file) {
+					subTitle1.text = "1 : Download the file";
+					subTitle2.text = "2 : Save it and share it too!";
+					_receptionFile = loaderInfo.parameters.file;
+				}
+
+				writeMessage("Connecting to the server...");
+				
+				// Connection
+				_netConnection.addEventListener(NetStatusEvent.NET_STATUS, netStatus);
+				_netConnection.connect(_url);
+				_netConnection.client = this;
+			}
+			
+			protected function netStatus(event:NetStatusEvent):void{
+				
+				switch(event.info.code){
+					case "NetConnection.Connect.Success": // Connected to server => NetGroup connection 
+						if (_receptionFile) { // Receiver : connect to MonaServer
+							var spec:GroupSpecifier = new GroupSpecifier(_receptionFile);
+							spec.serverChannelEnabled = true;
+							spec.objectReplicationEnabled = true;
+							
+							_netGroup = new NetGroup(_netConnection,spec.groupspecWithAuthorizations());
+							_netGroup.addEventListener(NetStatusEvent.NET_STATUS,netStatus);
+						} else // Sender : show browse button
+							modeStack.selectedIndex = 0;
+						
+						break;
+					
+					case "NetGroup.Connect.Success": // Connected to group
+						_netGroup.replicationStrategy = NetGroupReplicationStrategy.LOWEST_FIRST;
+						if (_receptionFile) {// Receiver : start receiving
+							
+							// Notify Mona of the new downloading peer
+							_netConnection.call("newDownloader", new Responder(null, function():void {
+								writeMessage("Sorry this link does not exists anymore");
+							}), _receptionFile);
+							p2pSharedObject = new P2PSharedObject();
+							p2pSharedObject.chunks = new Object();
+							writeMessage("Starting download...");
+							_netGroup.addWantObjects(0,0);
+						} else { // Sender
+							_netGroup.addHaveObjects(0, p2pSharedObject.packetLength);
+							sharingPeers.text = "Sharing : 1";
+						}
+						break;
+					
+					case "NetGroup.Replication.Fetch.Result": // Reception of file
+						
+						// Share the chunk downloaded
+						_netGroup.addHaveObjects(event.info.index,event.info.index);
+						p2pSharedObject.chunks[event.info.index] = event.info.object;
+						
+						// Chunk number
+						if(event.info.index == 0){
+							_timeStart = getTimer();
+							p2pSharedObject.packetLength = Number(event.info.object);							
+							loadingBar.setProgress(0, 100);
+							modeStack.selectedIndex = 2;
+						} 
+						// FileName
+						else if (event.info.index == 1) {
+							p2pSharedObject.fileName = String(event.info.object);
+							fileName.text = "File : " + p2pSharedObject.fileName;
+						}
+						// File Reception Complete!
+						else if (event.info.index+1 >= p2pSharedObject.packetLength) {
+							loadingBar.setProgress(100, 100);
+							
+							p2pSharedObject.data = new ByteArray();
+							for(var i:int = 2;i<p2pSharedObject.packetLength;i++){
+								p2pSharedObject.data.writeBytes(p2pSharedObject.chunks[i]);
+							}
+							fileSize.text = "Size : " + (p2pSharedObject.data.length/1000) + "o";
+							elapsedTime.text = "Elapsed time : " + ((getTimer()-_timeStart)/1000) + "s";
+							modeStack.selectedIndex = 3;
+							_netConnection.call("newSharer", null, _receptionFile); // inform Mona of the new sharing peer
+							return;
+						}
+						var progress:int = ((event.info.index+1) / p2pSharedObject.packetLength)*100;
+						loadingBar.setProgress(progress, 100);
+						_netGroup.addWantObjects(event.info.index+1, event.info.index+1);
+						
+						break;
+					
+					case "NetGroup.Replication.Request": // File requested
+						_netGroup.writeRequestedObject(event.info.requestID, p2pSharedObject.chunks[event.info.index]);
+						break;
+					
+					default:
+						break;
+				}
+			}
+			
+			// Save the file on the disk
+			private function saveFile():void {
+				
+				_file = new FileReference();
+				_file.addEventListener(Event.COMPLETE, function(event:Event):void {
+					writeMessage("File saved succesfully!");
+				});
+				_file.addEventListener(ProgressEvent.PROGRESS, function(event:ProgressEvent):void {
+					var loaded:int = (event.bytesLoaded/event.bytesTotal)*100;
+					loadingBar.setProgress(loaded, 100);
+				});
+				_file.addEventListener(Event.CANCEL, function(event:Event):void {
+					modeStack.selectedIndex = 3; // return to save button
+				});
+				_file.addEventListener(IOErrorEvent.IO_ERROR, fileErrorHandler);
+				_file.addEventListener(SecurityErrorEvent.SECURITY_ERROR, fileErrorHandler);
+				
+				_file.save(p2pSharedObject.data, p2pSharedObject.fileName);
+				loadingBar.setProgress(0, 100);
+				loadingBar.label = "SAVING";
+				modeStack.selectedIndex = 2;
+			}
+			
+			// Create the file browse object and load it
+			private function browse():void {
+				
+				_file = new FileReference();
+				_file.addEventListener(Event.SELECT, function():void {
+					_file.load();
+				});
+				_file.addEventListener(ProgressEvent.PROGRESS, function(event:ProgressEvent):void {
+					var loaded:int = (event.bytesLoaded/event.bytesTotal)*100;
+					loadingBar.setProgress(loaded, 100);
+				});
+				_file.addEventListener(Event.CANCEL, function(event:Event):void {
+					modeStack.selectedIndex = 0;
+				});
+				_file.addEventListener(IOErrorEvent.IO_ERROR, fileErrorHandler);
+				_file.addEventListener(SecurityErrorEvent.SECURITY_ERROR, fileErrorHandler)
+				_file.addEventListener(Event.COMPLETE, startSharing);
+				_file.browse();
+				loadingBar.setProgress(0, 100);
+				modeStack.selectedIndex = 2;
+			}
+			
+			protected function fileErrorHandler(event:IOErrorEvent):void {
+				writeMessage("Error while loading the file, sorry!");
+			}
+			
+			// Chunk the file in objects of size SIZE_CHUNKS and start to share it
+			private function startSharing(event:Event):void{
+				p2pSharedObject = new P2PSharedObject();
+				p2pSharedObject.size = _file.size;
+				fileSize.text = "Size : " + (_file.size/1000) + "o";
+				p2pSharedObject.data = _file.data;
+				p2pSharedObject.fileName = _file.name;
+				fileName.text = "File : " + _file.name;
+				p2pSharedObject.chunks = new Object();
+				p2pSharedObject.packetLength = 2;
+				
+				// Write each chunked part of file
+				var size:Number = 0;
+				while((size = p2pSharedObject.data.bytesAvailable) > 0) {
+					
+					p2pSharedObject.chunks[p2pSharedObject.packetLength] = new ByteArray();
+					if (size >= SIZE_CHUNKS)
+						p2pSharedObject.data.readBytes(p2pSharedObject.chunks[p2pSharedObject.packetLength],0,SIZE_CHUNKS);
+					else // last bytes
+						p2pSharedObject.data.readBytes(p2pSharedObject.chunks[p2pSharedObject.packetLength],0,p2pSharedObject.data.bytesAvailable);
+					p2pSharedObject.packetLength += 1;
+				}
+				p2pSharedObject.chunks[0] = p2pSharedObject.packetLength;
+				p2pSharedObject.chunks[1] = p2pSharedObject.fileName;
+				
+				// Try to register and create the group
+				_netConnection.call("registerFile", new Responder(onFileRegistered, function(error:Object):void {
+					writeMessage("Error : Unable to register "+_file.name);
+				}), p2pSharedObject.fileName);
+			}
+			
+			// Called when file has been registered
+			private function onFileRegistered(name:String):void {
+				
+				modeStack.selectedIndex = 1;
+				shareLink.text += name;
+				_groupName = name;
+				var spec:GroupSpecifier = new GroupSpecifier(name);
+				spec.serverChannelEnabled = true;
+				spec.objectReplicationEnabled = true;
+				
+				_netGroup = new NetGroup(_netConnection,spec.groupspecWithAuthorizations());
+				_netGroup.addEventListener(NetStatusEvent.NET_STATUS,netStatus);
+			}
+			
+			// Write the message and show the panel of messages
+			private function writeMessage(txt:String):void {
+				messageBox.text = txt;
+				modeStack.selectedIndex = 4;
+			}
+			
+			// called by Mona to update group infos 
+			public function updateInfos(download:int, share:int):void {
+				downloadingPeers.text = "Downloading : " + download; 
+				sharingPeers.text = "Sharing : " + share;
+			}
+		]]>
+	</fx:Script>
+	<mx:VBox width="600" height="500">
+		<mx:VBox width="100%" height="180">
+			<mx:LinkButton id="title" width="100%" height="80" color="#000000" fontFamily="Verdana" fontSize="36"
+					  fontStyle="italic" fontWeight="bold" label="FileShare P2P" textAlign="center" click="navigateToURL(new URLRequest('./'), '_self');"/>
+			<mx:Label id="subTitle1" color="#66CC66" fontSize="17" fontWeight="bold" text="1 : Load your file (no limit)"/>
+			<mx:Label id="subTitle2" color="#66CC66" fontSize="17" fontWeight="bold" text="2 : Your link is shared as long as their is a peer connected"/>
+		</mx:VBox>
+		<mx:HBox width="100%" height="120">
+			<mx:VBox width="395" height="120" backgroundColor="#66CC66" borderColor="#FFFFFF"
+					 borderStyle="solid" borderThickness="9" cornerRadius="20" verticalAlign="middle">
+				<mx:Label id="fileName" color="#FFFFFF" fontSize="17" fontWeight="bold" text="File : "/>
+				<mx:Label id="fileSize" color="#FFFFFF" fontSize="17" fontWeight="bold" text="Size : "/>
+				<mx:Label id="elapsedTime" color="#FFFFFF" fontSize="17" fontWeight="bold" text=""/>
+			</mx:VBox>
+			<mx:VBox width="195" height="120" backgroundColor="#66CC66" borderColor="#FFFFFF"
+					 borderStyle="solid" borderThickness="9" cornerRadius="20" verticalAlign="middle">
+				<mx:Label id="sharingPeers" color="#FFFFFF" fontSize="17" fontWeight="bold" text="Sharing : 0"/>
+				<mx:Label id="downloadingPeers" color="#FFFFFF" fontSize="17" fontWeight="bold" text="Downloading : 0"/>
+			</mx:VBox>			
+		</mx:HBox>
+		<mx:ViewStack id="modeStack" creationPolicy="all" width="100%" height="100" backgroundColor="#66CC66" borderColor="#FFFFFF"
+					  borderStyle="solid" borderThickness="9" cornerRadius="20">
+			<s:NavigatorContent> <!-- 0 : Browse button -->
+				<mx:Button height="40" label="Browse and Share" click="browse();"
+						   color="#FFFFFF" cornerRadius="17" fillAlphas="[1.0, 1.0]"
+						   fillColors="[#66CC66, #66CC66]" fontSize="17" horizontalCenter="0" verticalCenter="0"/>	
+			</s:NavigatorContent>
+			<s:NavigatorContent> <!-- 1 : Show link to share -->
+				<mx:VBox width="100%" verticalCenter="0">
+					<mx:Label color="#FFFFFF" fontSize="17" fontWeight="bold" text="Share this link to your recipients :"/>
+					<mx:HBox width="100%" backgroundColor="#FFFFFF" borderColor="#000000" borderStyle="solid">
+						<mx:Label id="shareLink" color="#0C00FF" fontSize="14" fontWeight="normal" selectable="true" truncateToFit="false" text="url to share" textDecoration="underline" maxWidth="560"/>
+					</mx:HBox>
+				</mx:VBox>
+			</s:NavigatorContent>
+			<s:NavigatorContent> <!-- 2 : Loading bar -->
+				<mx:ProgressBar id="loadingBar" color="#FFFFFF" fontSize="14" horizontalCenter="0" mode="manual" verticalCenter="0"/>
+			</s:NavigatorContent>
+			<s:NavigatorContent> <!-- 3 : Save button -->
+				<mx:Button height="40" label="Save File" click="saveFile();" color="#FFFFFF" cornerRadius="17" fillAlphas="[1.0, 1.0]"
+						   fillColors="[#66CC66, #66CC66]" fontSize="17" horizontalCenter="0" verticalCenter="0"/>
+			</s:NavigatorContent>
+			<s:NavigatorContent> <!-- 4 : Message box -->
+				<mx:Label id="messageBox" color="0xFFFFFF" fontSize="17" fontWeight="bold" text="" horizontalCenter="0" verticalCenter="0"/>
+			</s:NavigatorContent>
+		</mx:ViewStack>
+	</mx:VBox>
+</mx:Application>

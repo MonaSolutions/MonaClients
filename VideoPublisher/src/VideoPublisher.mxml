@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+				xmlns:s="library://ns.adobe.com/flex/spark" 
+				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="800" minHeight="600" applicationComplete="init()">
+	<fx:Script>
+		<![CDATA[
+			import mx.collections.ArrayList;
+			import mx.controls.Alert;
+			import mx.utils.URLUtil;
+			
+			private var _publishName:String;
+			private var _urlPath:String;
+			
+			private var _mic:Microphone;
+			private var _cam:Camera;
+			private var _dump:Boolean = false;
+			
+			private var _connection:NetConnection;
+			private var _outstream:NetStream;
+			
+			private var _connection2:NetConnection; // Connection with NetGroup
+			private var _outstream2:NetStream; // Outstream of NetGroup
+			private var _netGroup:NetGroup;
+			
+			[Bindable] private var listCam:ArrayList = new ArrayList();
+			
+			// init camera
+			private function init():void {
+				_mic = Microphone.getMicrophone();
+				
+				for (var index:String in Camera.names) {
+					listCam.addItem(Camera.names[index]);
+				}
+				if (listCam.length > 0) {
+					comboCam.selectedIndex = 1;
+					onCamChange();
+				}
+				
+				// Generate dynamic url
+				var url:String = this.loaderInfo.url;
+				var domainNPath:Array = url.match(/(:\/\/.+)\//);
+				if (URLUtil.getProtocol(url) != "file")
+					address.text = "rtmfp" + domainNPath[1] + "/test123";
+			}
+			
+			// net status handler for the NetConnection : connect the netstream and publish
+			private function onStatus(evt:NetStatusEvent):void { 
+				
+				console.text +=  "NetConnection event : " + evt.info.code + "\n";
+				
+				switch(evt.info.code) {
+					case "NetConnection.Connect.Success":
+					
+						if (_dump) // First activate publication dump if requested
+							NetConnection(evt.target).call("dumpON", null);
+						
+						// Classic publishing
+						if (evt.target==_connection) {
+							_outstream = new NetStream(_connection);
+							_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
+							_outstream.attachCamera(_cam);
+							_outstream.attachAudio(_mic);
+							_outstream.publish(_publishName);
+						} else { // NetGroup listening
+							
+							var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
+							groupSpec.peerToPeerDisabled = false; 
+							groupSpec.serverChannelEnabled=true; 
+							groupSpec.ipMulticastMemberUpdatesEnabled=true; 
+							groupSpec.multicastEnabled=true; 
+							groupSpec.postingEnabled=true;
+							var groupId:String = groupSpec.groupspecWithAuthorizations(); 
+							
+							console.text += "GroupSpec created : " + groupId + "\n";
+							_outstream2 = new NetStream(_connection2, groupId);
+							_outstream2.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
+							_outstream2.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusOutstream);
+							_outstream2.inBufferSeek = false;
+							
+							_netGroup = new NetGroup(_connection2,groupId); 
+							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
+								console.text +=  "NetGroup event : " + evt.info.code + "\n"; 
+							});
+						}
+						break;
+					case "NetStream.Connect.Success":
+						if (evt.target==_connection2) {
+							_outstream2.attachCamera(_cam);
+							_outstream2.attachAudio(_mic);
+							_outstream2.publish(_publishName);
+						}
+						break;
+					case "NetConnection.Connect.Closed":
+						btPublish.label = "Publish";
+						cbDump.enabled = true;
+						break;
+				}
+			}
+			
+			// net status handler for the NetStream
+			private function onStatusOutstream(evt:Event):void {
+				if (evt is AsyncErrorEvent)
+					console.text +=  "NetSream error : " + AsyncErrorEvent(evt).text + "\n"; 
+				else
+					console.text +=  "NetStream event : " + NetStatusEvent(evt).info.code + "\n";
+			}
+			
+			// Connect, then publish (or disconnect)
+			private function connect():void {
+				
+				if (_connection) {
+					_connection.close();
+					_connection = null;
+				}else if (_connection2) {
+					_connection2.close();
+					_connection2 = _connection;
+				} else {
+				
+					var lastSlash:int = address.text.lastIndexOf("/");
+					_urlPath=address.text.substr(0,lastSlash);
+					_publishName=address.text.substr(lastSlash+1);
+					if (_publishName == "" || _publishName == "VideoPublisher") {
+						Alert.show("Please type a publish name");
+						return;
+					}
+	
+					if (group.text == "") { // Classic publish
+						_connection = new NetConnection();
+						_connection.connect(_urlPath);
+						_connection.addEventListener(NetStatusEvent.NET_STATUS, onStatus);
+					} else { // Publish to NetGroup
+						_connection2 = new NetConnection();
+						_connection2.connect(_urlPath);
+						_connection2.addEventListener(NetStatusEvent.NET_STATUS, onStatus);
+					}
+					btPublish.label = "Unpublish";
+					cbDump.enabled = false;
+				}
+			}
+			
+			// Send a message to all
+			private function write():void {
+				
+				// Classic publisher
+				if (_outstream != null)
+					_outstream.send("message2All", message.text);
+				else // NetGroup publisher
+					_outstream2.send("message2All", message.text);
+					
+				message.text = "";
+			}
+			
+			// Activate/Disactivate echo
+			private function onMicroChange():void {
+				console.text += (cbMicro.selected)? "Echo tolerant\n" : "No echo\n";
+				_mic.setSilenceLevel((cbMicro.selected)? 10 : 100);
+			}
+			
+			// Activate/Disactivate echo
+			private function onDumpChange():void {
+				_dump = cbDump.selected;
+			}
+			
+			// Change the camera used by player
+			private function onCamChange():void {
+				 var selection:String = comboCam.selectedItem;;
+				 
+				 _cam = Camera.getCamera(selection);
+				 player.attachCamera(_cam);
+			}
+		]]>
+	</fx:Script>
+	<mx:VBox width="800" height="600" horizontalAlign="center">
+		<mx:HBox>
+			<mx:VBox width="390">
+				<mx:HBox width="100%">
+					<mx:Label text="Publisher : " fontWeight="bold"/>
+					<mx:HRule width="160" visible="false"/>
+					<s:CheckBox selected="true" label="Echo" change="onMicroChange()" id="cbMicro"/>
+					<s:CheckBox selected="false" label="Dump*" change="onDumpChange()" id="cbDump"/>
+				</mx:HBox>
+				<mx:HBox width="100%">
+					<mx:Label text="Address : "/>
+					<mx:TextInput width="100%" text="rtmfp://localhost/VideoPublisher/test123" id="address"/>
+				</mx:HBox>
+				<mx:HBox width="100%">
+					<mx:Label text="NetGroup** : "/>
+					<mx:TextInput width="100%" text="grouptest" id="group"/>
+					<mx:Button label="Publish" click="connect()" id="btPublish"/>
+				</mx:HBox>
+				<mx:HBox width="100%">
+					<mx:Label text="Message : "/>
+					<mx:TextInput width="100%" id="message"/>
+					<mx:Button label="Send" click="write()"/>
+				</mx:HBox>
+				<mx:HBox width="100%">
+					<mx:Label text="Camera : "/>
+					<s:ComboBox id="comboCam" dataProvider="{listCam}" change="onCamChange()"/>
+				</mx:HBox>
+				<mx:Label text="*: Dump doesn't work with NetGroups" fontStyle="italic"/>
+				<mx:Label text="**: No NetGroup if empty" fontStyle="italic"/>
+			</mx:VBox>
+			<mx:VideoDisplay width="400" height="300" id="player"/>
+		</mx:HBox>
+		<s:TextArea height="100%" width="100%" id="console" visible="false"/>
+	</mx:VBox>
+</mx:Application>
