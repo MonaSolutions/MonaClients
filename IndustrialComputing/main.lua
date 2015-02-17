@@ -1,7 +1,8 @@
 
-_clients = {}
+_clients = {} -- array of WebSocket clients
 
 function onConnection(client,...)
+        -- Register client
 	if (client.protocol=="WebSocket") then _clients[client]=client end
 	
 	function client:initClient()
@@ -50,6 +51,7 @@ function onConnection(client,...)
 	return { index="index.html" }
 end
 
+-- Send a message to all WebSocket clients
 function sendToClients(event, value)
 	
 	for client, c in pairs(_clients) do
@@ -57,6 +59,7 @@ function sendToClients(event, value)
 	end
 end
 
+-- Unregister the client
 function onDisconnection(client)
 	_clients[client]=nil
 end

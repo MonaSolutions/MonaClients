@@ -43,25 +43,26 @@ function sendMessage(data) {
 /***** Initialisation of elements ******/
 function load() {
 	
-	var svg = document.getElementById("canvassvg");
-	var svgDoc = svg.contentDocument;
-	svgDoc.onmousemove = mouseMove;
-	svgDoc.onmouseup = mouseUp;
+    var svg = document.getElementById("canvassvg");
+    var svgDoc = svg.contentDocument;
+    svgDoc.onmousemove = mouseMove;
+    svgDoc.onmouseup = mouseUp;
     svgDoc.ontouchmove = touchMove;
     svgDoc.ontouchstart = mouseDown;
     svgDoc.ontouchend = mouseUp;
     //svgDoc.addEventListener('MSPointerMove', function() { alert("test 2"); }, false);
     
     // Actuator elements
-	_actuator = svgDoc.getElementById("actuator");
-	_cursor = svgDoc.getElementById("cursor");
+    _actuator = svgDoc.getElementById("actuator");
+    _cursor = svgDoc.getElementById("cursor");
     _minCursor = parseInt(_cursor.getAttribute("x"));
     _maxCursor = _minCursor + 100;
-	_cursor.onmousedown = mouseDown;
+    _cursor.onmousedown = mouseDown;
     _counterActuator = svgDoc.getElementById("couterActuator");
     _actuatorSize = parseInt(_actuator.getAttribute("width"));
     _minActuator = _actuatorSize;
     _counterActuator.textContent = _actuatorSize;
+    _cursor.style.cursor = "pointer";
     
     // pool elements
     _counterPool = svgDoc.getElementById("counterPool");
@@ -70,16 +71,18 @@ function load() {
     _poolSize = 0;
     _counterPool.textContent = _poolSize;
     _btPlus = svgDoc.getElementById("btPlus");
-	_btPlus.onmousedown = function() { sendMessage(["onPoolAdd", _poolSize]); };
+    _btPlus.onmousedown = function() { sendMessage(["onPoolAdd", _poolSize]); };
     _btMinus = svgDoc.getElementById("btMinus");
-	_btMinus.onmousedown = function() { sendMessage(["onPoolDel", _poolSize]); };
+    _btMinus.onmousedown = function() { sendMessage(["onPoolDel", _poolSize]); };
+    _btMinus.style.cursor = _btPlus.style.cursor = "pointer";
     
     // lamp elements
     _lamp = svgDoc.getElementById("lamp");
     _btON = svgDoc.getElementById("btON");
     _btON.onmousedown = function() { sendMessage(["onLamp", true]); };
     _btOFF = svgDoc.getElementById("btOFF");
-	_btOFF.onmousedown = function() { sendMessage(["onLamp", false]); };
+    _btOFF.onmousedown = function() { sendMessage(["onLamp", false]); };
+    _btOFF.style.cursor = _btON.style.cursor = "pointer";
     _lampON = true;
     
     startSocket();
