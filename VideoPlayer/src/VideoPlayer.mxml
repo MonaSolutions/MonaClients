@@ -36,7 +36,7 @@
 				_netConnection.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetConnection);
 				
 				// Add close window handler to close connection at 
-				ExternalInterface.addCallback("sendToActionScript", closeWindow);
+				//ExternalInterface.addCallback("sendToActionScript", closeWindow);
 			}
 			
 			/**
@@ -90,7 +90,7 @@
 				 }
 			 }
 			
-			// Manage NetConnection and NetStream success
+			// Manage NetConnection and NetStream events
 			private function onStatusNetConnection(event:NetStatusEvent):void {
 				
 				consoleRTMP.text += 'NetConnection event : ' + event.info.code + "\n";
@@ -101,6 +101,7 @@
 							consoleRTMP.text += "New NetStream classic\n";
 							_receiveNS = new NetStream(_netConnection);
 							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
+							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
 							_receiveNS.play(_name2);
 							_vid.attachNetStream(_receiveNS);
 						} else { // Netgroup listening
@@ -123,7 +124,7 @@
 							_netGroup = new NetGroup(_netConnection,groupId); 
 							_netGroup.receiveMode = NetGroupReceiveMode.NEAREST;
 							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
-								consoleRTMP.text +=  "NetGroup event : " + evt.info.code + "\n"; 
+								consoleRTMP.text +=  "NetGroup event : " + evt.info.code + "\n";
 							});
 						}
 						break;
@@ -209,7 +210,7 @@
 					<mx:TextInput width="100%" id="group" text="grouptest"/>
 				</mx:HBox>
 				<mx:Label text="*: No NetGroup if empty" fontStyle="italic"/>
-				<s:TextArea width="100%" height="100%" id="consoleRTMP" visible="false"/>
+				<s:TextArea width="100%" height="100%" id="consoleRTMP" visible="true"/>
 			</mx:VBox>
 			<mx:VBox id="containerVideo" width="400" height="300">
 				<mx:UIComponent id="video2" width="100%" height="100%"/>

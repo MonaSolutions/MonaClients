@@ -1,3 +1,17 @@
+--[[
+    This script allows you to publish a stream named "file" from a gstreamer instance.
+    
+    Follow these steps to test the publication :
+    
+    1. Copy this directory in the "www/gstreamer/" directory of MonaServer,
+    2. Edit the www/main.lua file to add the line 'children("gstreamer")' in order to start this service at Mona's start,
+    3. Run MonaServer,
+    4. Install gstreamer and run the following command :
+    
+        gst-launch-1.0 videotestsrc pattern=smpte is-live=true ! timeoverlay font-desc="Serif,Medium 40" color=4294901760 ! x264enc bitrate=128 tune=zerolatency ! queue ! mux. audiotestsrc wave=ticks ! audioconvert ! speexenc bitrate=8000 ! queue ! mux. flvmux name=mux ! udpsink port=6666 host=127.0.0.1
+        
+    5. And then listen to the RTMP (rtmp://127.0.0.1/file) or RTMFP address (rtmfp://127.0.0.1/file) to see the result, you can use our sample VideoPlayer at http://raspi.monaserver.ovh/MonaClients/VideoPlayer/.
+]]
 
 socket = mona:createUDPSocket()
 function socket:onPacket(data, address)
