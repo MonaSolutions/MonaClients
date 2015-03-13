@@ -118,7 +118,7 @@
 							_receiveNS = new NetStream(_netConnection, groupId);
 							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
 							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
-							_receiveNS.inBufferSeek = false;
+							//_receiveNS.inBufferSeek = false;
 							_receiveNS.client=this;
 							
 							_netGroup = new NetGroup(_netConnection,groupId); 

@@ -75,7 +75,7 @@
 							_outstream2 = new NetStream(_connection2, groupId);
 							_outstream2.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
 							_outstream2.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusOutstream);
-							_outstream2.inBufferSeek = false;
+							//_outstream2.inBufferSeek = false;
 							
 							_netGroup = new NetGroup(_connection2,groupId); 
 							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
