@@ -122,7 +122,7 @@
 							_receiveNS.client=this;
 							
 							_netGroup = new NetGroup(_netConnection,groupId); 
-							_netGroup.receiveMode = NetGroupReceiveMode.NEAREST;
+							//_netGroup.receiveMode = NetGroupReceiveMode.NEAREST;
 							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
 								consoleRTMP.text +=  "NetGroup event : " + evt.info.code + "\n";
 							});
