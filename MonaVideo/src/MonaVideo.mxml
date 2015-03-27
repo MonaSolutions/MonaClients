@@ -5,6 +5,7 @@
 			   xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="300" minHeight="200" applicationComplete="init()" backgroundColor="0x303030">
 	<fx:Script>
 		<![CDATA[
+			import flash.media.H264VideoStreamSettings;
 			import mx.controls.Alert;
 			import mx.controls.Label;
 			import mx.managers.PopUpManager;
@@ -97,6 +98,7 @@
 				PopUpManager.removePopUp(_loginWindow);
 				
 				_cam = Camera.getCamera();
+				_cam.setMode(640, 480, 15);
 				localVideoDisplay.attachCamera(_cam);
 				localVideoDisplay.addEventListener(MouseEvent.MOUSE_DOWN, function(event:MouseEvent):void {
 					localVideoDisplay.startDrag(); // on click the camera can is dragable
@@ -122,6 +124,9 @@
 			public function connect2Peer(id:String, angle:int, caller:Boolean):void {
 				panelShare.visible=false;
 				_outgoingStream = new NetStream(_connection, NetStream.DIRECT_CONNECTIONS);
+				var codec:H264VideoStreamSettings = new H264VideoStreamSettings();
+				codec.setProfileLevel(H264Profile.BASELINE, "3");
+				_outgoingStream.videoStreamSettings = codec;
 				_outgoingStream.publish(caller? "caller" : "callee");
 				
 				// Attach camera & micro

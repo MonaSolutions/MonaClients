@@ -7,6 +7,7 @@
 			import mx.collections.ArrayList;
 			import mx.controls.Alert;
 			import mx.utils.URLUtil;
+			import flash.media.H264VideoStreamSettings;
 			
 			private var _publishName:String;
 			private var _urlPath:String;
@@ -15,26 +16,36 @@
 			private var _cam:Camera;
 			private var _dump:Boolean = false;
 			
-			private var _connection:NetConnection;
-			private var _outstream:NetStream;
-			
+			private var _connection:NetConnection;			
 			private var _connection2:NetConnection; // Connection with NetGroup
-			private var _outstream2:NetStream; // Outstream of NetGroup
+			private var _outstream:NetStream;
 			private var _netGroup:NetGroup;
 			
+			private var _videoCodec:H264VideoStreamSettings;
+			
 			[Bindable] private var listCam:ArrayList = new ArrayList();
+			[Bindable] private var listVideoCodec:ArrayList = new ArrayList(["H264 Baseline","H264 Main","Sorenson"]);
+			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex"]);
+			[Bindable] private var listEchoCancellation:ArrayList = new ArrayList(["Normal","Headphones","Off"]);
+			[Bindable] private var listQuality:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","320x180","480x270","640x360"]);
 			
 			// init camera
 			private function init():void {
-				_mic = Microphone.getMicrophone();
+				// Init microphone
+				onEchoChanged();
 				
+				// Init camera parameters and select the first one
 				for (var index:String in Camera.names) {
 					listCam.addItem(Camera.names[index]);
 				}
 				if (listCam.length > 0) {
-					comboCam.selectedIndex = 1;
+					comboCam.selectedIndex = 0;
 					onCamChange();
 				}
+				
+				// Select the first video codec & set video quality
+				comboVideoCodec.selectedIndex = 0;
+				onVideoCodec();
 				
 				// Generate dynamic url
 				var url:String = this.loaderInfo.url;
@@ -60,6 +71,7 @@
 							_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
 							_outstream.attachCamera(_cam);
 							_outstream.attachAudio(_mic);
+							_outstream.videoStreamSettings = _videoCodec;
 							_outstream.publish(_publishName);
 						} else { // NetGroup listening
 							
@@ -72,10 +84,9 @@
 							var groupId:String = groupSpec.groupspecWithAuthorizations(); 
 							
 							console.text += "GroupSpec created : " + groupId + "\n";
-							_outstream2 = new NetStream(_connection2, groupId);
-							_outstream2.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
-							_outstream2.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusOutstream);
-							//_outstream2.inBufferSeek = false;
+							_outstream = new NetStream(_connection2, groupId);
+							_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
+							_outstream.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusOutstream);
 							
 							_netGroup = new NetGroup(_connection2,groupId); 
 							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
@@ -85,9 +96,10 @@
 						break;
 					case "NetStream.Connect.Success":
 						if (evt.target==_connection2) {
-							_outstream2.attachCamera(_cam);
-							_outstream2.attachAudio(_mic);
-							_outstream2.publish(_publishName);
+							_outstream.attachCamera(_cam);
+							_outstream.attachAudio(_mic);
+							_outstream.videoStreamSettings = _videoCodec;
+							_outstream.publish(_publishName);
 						}
 						break;
 					case "NetConnection.Connect.Closed":
@@ -142,11 +154,7 @@
 			private function write():void {
 				
 				// Classic publisher
-				if (_outstream != null)
-					_outstream.send("message2All", message.text);
-				else // NetGroup publisher
-					_outstream2.send("message2All", message.text);
-					
+				_outstream.send("message2All", message.text);
 				message.text = "";
 			}
 			
@@ -161,41 +169,136 @@
 				_dump = cbDump.selected;
 			}
 			
+			// Change the codec used for video compression
+			private function onVideoCodec():void {
+				switch(comboVideoCodec.selectedLabel) {
+					case "Sorenson":
+						_videoCodec = null;
+						break;
+					case "H264 Baseline":
+						_videoCodec = new H264VideoStreamSettings();
+						_videoCodec.setProfileLevel(H264Profile.BASELINE, "3");
+						break;
+					case "H264 Main":
+						_videoCodec = new H264VideoStreamSettings();
+						_videoCodec.setProfileLevel(H264Profile.MAIN, "3");
+						break;						
+				}
+			}
+			
+			// Change the codec used for audio compression
+			private function onAudioCodec():void {
+				_mic.codec = comboAudioCodec.selectedLabel;
+			}
+			
+			// Change the microphone properties
+			private function onEchoChanged():void {
+				var options:MicrophoneEnhancedOptions = new MicrophoneEnhancedOptions();
+				switch(echoCancellation.selectedLabel){
+					case "Normal":
+						_mic = Microphone.getEnhancedMicrophone();
+						options.mode = MicrophoneEnhancedMode.FULL_DUPLEX;
+						break;
+					case "Headphones":
+						_mic = Microphone.getEnhancedMicrophone();
+						options.mode = MicrophoneEnhancedMode.HEADSET;
+						break;
+					case "Off": {
+						_mic = Microphone.getMicrophone();
+						break;
+					}
+				}
+				if(!_mic)
+					return;
+				_mic.enhancedOptions = options;
+				if(_outstream)
+					_outstream.attachAudio(_mic);
+				onAudioCodec();
+			}
+			
 			// Change the camera used by player
 			private function onCamChange():void {
-				 var selection:String = comboCam.selectedItem;;
-				 
+				 var selection:String = String(comboCam.selectedIndex);
 				 _cam = Camera.getCamera(selection);
 				 player.attachCamera(_cam);
+				 
+				 // Update video quality
+				 onQualityChange();
 			}
+			
+			// Change the quality of the video
+			private function onQualityChange():void {
+				var w:int = 160; 
+				var h:int = 120;
+				switch(comboQuality.selectedLabel) {
+					case "160x120":
+						break;
+					case "320x240":
+						w = 320; h = 240;
+						break;
+					case "480x360":
+						w = 480; h = 360;
+						break;
+					case "640x480":
+						w = 640; h = 480;
+						break;
+					case "320x180":
+						w = 320; h = 180;
+						break;
+					case "480x270":
+						w = 480; h = 270;
+						break;
+					case "640x360":
+						w = 640; h = 360;
+						break;
+				}
+				_cam.setMode(w, h, 15);
+			}
+			
 		]]>
 	</fx:Script>
 	<mx:VBox width="800" height="600" horizontalAlign="center">
 		<mx:HBox>
 			<mx:VBox width="390">
 				<mx:HBox width="100%">
-					<mx:Label text="Publisher : " fontWeight="bold"/>
+					<mx:Label text="Publisher" fontWeight="bold"/>
 					<mx:HRule width="160" visible="false"/>
 					<s:CheckBox selected="true" label="Echo" change="onMicroChange()" id="cbMicro"/>
 					<s:CheckBox selected="false" label="Dump*" change="onDumpChange()" id="cbDump"/>
 				</mx:HBox>
 				<mx:HBox width="100%">
-					<mx:Label text="Address : "/>
+					<mx:Label text="Address"/>
 					<mx:TextInput width="100%" text="rtmfp://localhost/VideoPublisher/test123" id="address"/>
 				</mx:HBox>
 				<mx:HBox width="100%">
-					<mx:Label text="NetGroup** : "/>
-					<mx:TextInput width="100%" text="grouptest" id="group"/>
+					<mx:Label text="NetGroup**"/>
+					<mx:TextInput width="100%" text="" id="group"/>
 					<mx:Button label="Publish" click="connect()" id="btPublish"/>
 				</mx:HBox>
 				<mx:HBox width="100%">
-					<mx:Label text="Message : "/>
+					<mx:Label text="Message"/>
 					<mx:TextInput width="100%" id="message"/>
 					<mx:Button label="Send" click="write()"/>
 				</mx:HBox>
 				<mx:HBox width="100%">
-					<mx:Label text="Camera : "/>
-					<s:ComboBox id="comboCam" dataProvider="{listCam}" change="onCamChange()"/>
+					<mx:Label text="Camera"/>
+					<mx:ComboBox id="comboCam" dataProvider="{listCam}" change="onCamChange()" editable="false"/>
+				</mx:HBox>
+				<mx:HBox width="100%">
+					<mx:Label text="Video Codec"/>
+					<mx:ComboBox id="comboVideoCodec" dataProvider="{listVideoCodec}" change="onVideoCodec()" editable="false"/>
+				</mx:HBox>
+				<mx:HBox>
+					<mx:Label text="Quality"/>
+					<mx:ComboBox id="comboQuality" dataProvider="{listQuality}" change="onQualityChange()" editable="false"/>
+				</mx:HBox>
+				<mx:HBox width="100%">
+					<mx:Label text="Audio Codec"/>
+					<mx:ComboBox id="comboAudioCodec" dataProvider="{listAudioCodec}" change="onAudioCodec()" editable="false"/>
+				</mx:HBox>
+				<mx:HBox width="100%">
+					<mx:Label text="Echo Cancellation"/>
+					<mx:ComboBox id="echoCancellation" dataProvider="{listEchoCancellation}" change="onEchoChanged();"/>
 				</mx:HBox>
 				<mx:Label text="*: Dump doesn't work with NetGroups" fontStyle="italic"/>
 				<mx:Label text="**: No NetGroup if empty" fontStyle="italic"/>

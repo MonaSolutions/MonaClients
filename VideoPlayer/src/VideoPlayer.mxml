@@ -207,7 +207,7 @@
 				</mx:HBox>
 				<mx:HBox width="100%">
 					<mx:Label text="NetGroup* : "/>
-					<mx:TextInput width="100%" id="group" text="grouptest"/>
+					<mx:TextInput width="100%" id="group" text=""/>
 				</mx:HBox>
 				<mx:Label text="*: No NetGroup if empty" fontStyle="italic"/>
 				<s:TextArea width="100%" height="100%" id="consoleRTMP" visible="true"/>
