@@ -1,74 +1,166 @@
 <?xml version="1.0" encoding="utf-8"?>
 <mx:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
 				xmlns:s="library://ns.adobe.com/flex/spark" 
-				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="955" minHeight="800" applicationComplete="init();" backgroundColor="0x66CC66">
+				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="400" minHeight="300" applicationComplete="init();" backgroundColor="0xCCCCCC" paddingTop="0" paddingLeft="0" paddingBottom="0" paddingRight="0">
 	<fx:Declarations>
 	</fx:Declarations>
 	<fx:Script>
 		<![CDATA[			
+			import flash.events.FullScreenEvent;
+			import flash.events.MouseEvent;
+			import flash.events.TimerEvent;
+			import flash.filters.ColorMatrixFilter;
+			import flash.utils.Timer;
 			import mx.core.Container;
 			import mx.utils.URLUtil;
 			
-			// Variables for RTMP/RTMFP connection
+			private var _filter:ColorMatrixFilter;
+			
 			private var _netConnection:NetConnection;
 			private var _receiveNS:NetStream;
-			private var _domainNPath2:String; // url of the video
-			private var _name2:String; // name of the video
+			private var _domainNPath:String; // url of the video
+			private var _name:String; // name of the video
 			private var _netGroup:NetGroup;
 			private var _vid:Video = new Video(400, 300);
 			
+			// Width & Height of the video layout
+			private var _width:int = 400;
+			private var _height:int = 300;
+			private var _fixedSize:Boolean = false;
+			
 			private function init():void {
+				consoleRTMP.text += "Initialization of the video player\n";
 				// Add RTMP/RTMFP video player 
 				_vid.opaqueBackground = 0x000000;
-				video2.addChild(_vid);
+				videoUI.addChild(_vid);
 				
 				// Generate dynamic url
 				var url:String = this.loaderInfo.url;
 				var domainNPath:Array = url.match(/(:\/\/.+)\//);
-				if (URLUtil.getProtocol(url) != "file") {
-					address.text = "http" + domainNPath[1] + "/test123.flv";
-					address2.text = "rtmfp" + domainNPath[1] + "/test123";
-				}
-				
+				if (URLUtil.getProtocol(url) != "file")
+					address.text = "rtmfp" + domainNPath[1] + "/test123";
+					
 				// Generate netconnection for RTMP/RTMFP player
 				_netConnection = new NetConnection();
 				_netConnection.client = this;
 				_netConnection.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetConnection);
 				
-				// Add close window handler to close connection at 
-				//ExternalInterface.addCallback("sendToActionScript", closeWindow);
+				if (loaderInfo.parameters) {
+					// No configuration panel?
+					if (loaderInfo.parameters.noconfig)
+						containerVideo.removeChild(config);
+					// No tools?
+					if (loaderInfo.parameters.notools)
+						containerTools.removeChild(tools);
+					else {
+						// To change color of tool buttons on over/out
+						var matrix:Array = new Array();
+						matrix = matrix.concat([0, 0, 0, 0, 0]); // red
+						matrix = matrix.concat([0, 0, 0, 0, 0]); // green
+						matrix = matrix.concat([0, 0, 1, 0, 0]); // blue
+						matrix = matrix.concat([0, 0, 0, 0.2, 0]); // alpha
+						_filter = new ColorMatrixFilter(matrix);
+						btPause.addEventListener(MouseEvent.ROLL_OVER, onBtOver);
+						btPause.addEventListener(MouseEvent.ROLL_OUT, onBtOut);
+						btParameters.addEventListener(MouseEvent.ROLL_OVER, onBtOver);
+						btParameters.addEventListener(MouseEvent.ROLL_OUT, onBtOut);
+						btFullScreen.addEventListener(MouseEvent.ROLL_OVER, onBtOver);
+						btFullScreen.addEventListener(MouseEvent.ROLL_OUT, onBtOut);
+					}
+					// Fixed width?
+					if (loaderInfo.parameters.width) {
+						_width = loaderInfo.parameters.width;
+						_fixedSize = true;
+					}
+					// Fixed height
+					if (loaderInfo.parameters.height) {
+						_width = loaderInfo.parameters.height;
+						_fixedSize = true;
+					}
+					// Fit video to the windows
+					if (loaderInfo.parameters.fit) {
+						stage.addEventListener(Event.RESIZE, onStageResized); 
+						_width = _height = -1;
+						_fixedSize = true;
+					}
+					// Finally, automatically connect to the url in parameter
+					// url : host + path of the stream
+					// protocol : protocol of the stream (rtmp/rtmfp)
+					if (loaderInfo.parameters.url && loaderInfo.parameters.protocol) {
+						address.text = loaderInfo.parameters.protocol + "://" + loaderInfo.parameters.url;
+						if (loaderInfo.parameters.unbuffered)
+							address.text += "?unbuffered=true";
+						onConnect();
+					} else if (loaderInfo.parameters.unbuffered)
+						address.text += "?unbuffered=true";
+				}
+				
+				// FullScreen Escape event
+				stage.addEventListener(FullScreenEvent.FULL_SCREEN, onEscapeFullScreen);
+				
+				// Update the size of the video layout
+				resetVideoLayout(_width, _height);
 			}
 			
-			/**
-			 * 
-			 * This function is called from Javascript when the window
-			 * is closed for closing an eventual connection
-			 * It is very IMPORTANT to close correctly the connection
-			 * 
-			 * Note : doesn't work using "file://" protocol
-			 * 
-			 */
-			public function closeWindow(value:String):void {
-				if (_netConnection && _netConnection.connected)
-					_netConnection.close();
+			// Change color of Toolbar buttons on over/out
+			private function onBtOut(e:MouseEvent):void { e.target.filters = null; }
+			private function onBtOver(e:MouseEvent):void { e.target.filters = [_filter]; }
+			
+			// Toggle visibility of the toolbar
+			private function showToolBar(event:MouseEvent):void { tools.visible = true;	}
+			private function unshowToolBar(event:MouseEvent):void { tools.visible = false;	}
+			
+			// Show MetaData informations (called from Mona)
+			public function onMetaData(infoObject:Object):void { 
+				consoleRTMP.text += "MetaData : \n";
+				for (var key:String in infoObject) { 
+					consoleRTMP.text += " - " + key + ": " + infoObject[key] + "\n"; 
+				} 
+				
+				// Resize video
+				if (!_fixedSize && infoObject["width"] && infoObject["height"])
+					resetVideoLayout(infoObject["width"], infoObject["height"]);
+			}
+			
+			// If "fit" mode : resize the video when stage is resized 
+			private function onStageResized(e:Event):void {
+				if (stage.displayState != StageDisplayState.FULL_SCREEN) {
+					consoleRTMP.text += "Stage resized (" + ((_width == -1)? (width+"x"+height) : (_width+"x"+_height)) + ")\n";
+					resetVideoLayout(_width, _height);
+				}
+			}
+			
+			// Reset Video Layout and position
+			private function resetVideoLayout(newWidth:int, newHeight:int):void {
+				if (newWidth == -1) {
+					newWidth = width;
+					newHeight = height;
+				}
+				_vid.width = containerVideo.width = newWidth;
+				_vid.height = containerVideo.height = newHeight;
+				if (tools) {
+					// update tools & config position
+					containerTools.y = newHeight - 32 - ((config)? config.height : 0);
+					
+					// Set the background of tools
+					tools.graphics.clear();
+					tools.graphics.beginFill(uint(0xcccccc), 0.6);
+					tools.graphics.drawRect(0,0,width, 32);
+					tools.graphics.endFill();
+				}
+			}
+			
+			// Pause the video
+			private function pause():void { 
+				if (_receiveNS)
+					_receiveNS.togglePause(); 
 			}
 			
 			// Receive message from the publisher
-			public function message2All(message:String):void {
-				messages.text = message;
-			}
+			public function message2All(message:String):void {messages.text = message; }
 			
-			/**
-			 * 
-			 * onStatusEvent
-			 * 
-			 * This function has been added to implement Client part of
-			 * Server scalability as described on the following link :
-			 * 
-			 * http://monasolutions.github.io/MonaServer/scalability.html#exchange-data-and-resources 
-			 * 
-			 */
-			 private function onStatusNetStream(evt:Event):void {
+			// Manage NetStream events
+			private function onStatusNetStream(evt:Event):void {
 				 
 				 if (evt is AsyncErrorEvent)
 					 consoleRTMP.text +=  "NetStream error : " + AsyncErrorEvent(evt).text + "\n"; 
@@ -77,7 +169,9 @@
 					 consoleRTMP.text +=  "NetStream event : " + event.info.code + "\n";
 					 
 					 switch (event.info.code) {
-						 case "NetStream.Play.Failed": // scalability!
+						// Only for scalability
+						// see http://monasolutions.github.io/MonaServer/scalability.html#exchange-data-and-resources 
+						case "NetStream.Play.Failed":
 							 var error:Array = event.info.description.split(" ");
 							 if (error.length > 0) {
 								 var host:String = "rtmfp://" + error[error.length-1];
@@ -86,11 +180,16 @@
 								 _netConnection.connect(host);
 							 }
 							 break;
+						// Reset video size layout size
+						case "NetStream.Video.DimensionChange":
+							if (!_fixedSize)
+								resetVideoLayout(_vid.videoWidth, _vid.videoHeight);
+							break;
 					 }
 				 }
 			 }
 			
-			// Manage NetConnection and NetStream events
+			// Manage NetConnection events
 			private function onStatusNetConnection(event:NetStatusEvent):void {
 				
 				consoleRTMP.text += 'NetConnection event : ' + event.info.code + "\n";
@@ -98,12 +197,13 @@
 					case "NetConnection.Connect.Success":
 						// Classic listening
 						if (group.text == "") {
-							consoleRTMP.text += "New NetStream classic\n";
+							consoleRTMP.text += "Start playing stream " + _name + "\n";
 							_receiveNS = new NetStream(_netConnection);
 							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
 							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
-							_receiveNS.play(_name2);
+							_receiveNS.client = this;
 							_vid.attachNetStream(_receiveNS);
+							_receiveNS.play(_name);
 						} else { // Netgroup listening
 							
 							var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
@@ -127,99 +227,107 @@
 								consoleRTMP.text +=  "NetGroup event : " + evt.info.code + "\n";
 							});
 						}
+						// Faster video stream (but unreliable)
+						if (loaderInfo.parameters && loaderInfo.parameters.unreliable) {
+							consoleRTMP.text +=  "Unreliable stream requested\n";
+							_receiveNS.videoReliable = false;
+							_receiveNS.audioReliable = false;
+						}
+						
 						break;
 					case "NetStream.Connect.Success": // Group connection
 						if (group.text != "") {
-							_receiveNS.play(_name2);
 							_vid.attachNetStream(_receiveNS);
+							_receiveNS.play(_name);
 						}
 						break;
 				}
 			}
 			
-			// Connect to the HTTP Progressive link
-			private function connectHTTP():void {
-				video.source = address.text;
-				video.play();
-			}
-			
 			// Connect to the RTMP/RTMFP link
-			private function connectVideo2():void {
+			private function onConnect():void {
 				
-				var lastSlash:int = address2.text.lastIndexOf("/");
-				_domainNPath2=address2.text.substr(0,lastSlash);
-				_name2=address2.text.substr(lastSlash+1);
+				consoleRTMP.text += "Connection to '" + address.text + "'\n";
+				var lastSlash:int = address.text.lastIndexOf("/");
+				_domainNPath=address.text.substr(0,lastSlash);
+				_name=address.text.substr(lastSlash+1);
 				if (_netConnection.connected)
 					_netConnection.close();
 
-				_netConnection.connect(_domainNPath2);
+				_netConnection.connect(_domainNPath);
 			}
 			
-			/***
-			 * FullScreen button
-			 * 
-			 ***/
+			// Parameters button
+			private function onParameters():void {
+				config.visible = !config.visible;
+				if (_receiveNS) { // While no connection has been established : show the toolbar
+					if (config.visible) {
+						containerVideo.removeEventListener(MouseEvent.ROLL_OVER, showToolBar);
+						containerVideo.removeEventListener(MouseEvent.ROLL_OUT, unshowToolBar);
+					} else {
+						containerVideo.addEventListener(MouseEvent.ROLL_OVER, showToolBar);
+						containerVideo.addEventListener(MouseEvent.ROLL_OUT, unshowToolBar);
+					}
+				}
+			}
+			
+			
+			// FullScreen button
 			private function onFullScreen():void {
-				containerVideo.removeChild(video2);
-				stage.addChild(video2);
-				stage.displayState = StageDisplayState.FULL_SCREEN;
-				_vid.width = stage.width;
-				_vid.height = stage.height;
-				video2.width = stage.width;        //Optional
-				video2.height = stage.height;        //Optional
-				video2.x = 0;
-				video2.y = 0;
-				stage.addEventListener(FullScreenEvent.FULL_SCREEN, onEscapeFullScreen);			
+				if (stage.displayState == StageDisplayState.FULL_SCREEN) 
+					stage.displayState = StageDisplayState.NORMAL; // escape from fullscreen mode
+				else
+					stage.displayState = StageDisplayState.FULL_SCREEN;
 			}
 			
 			// Called when ESCAPE is pressed and FullScreen is ON
 			private function onEscapeFullScreen(event:FullScreenEvent):void {
-				if(!event.fullScreen) {
-					stage.removeChild(video2);
-					containerVideo.addChild(video2);
-					_vid.width = 400;
-					_vid.height = 300;
-					video2.percentWidth = video2.percentHeight = 100;    //Optional
-					stage.removeEventListener(FullScreenEvent.FULL_SCREEN, onEscapeFullScreen);
+				consoleRTMP.text += "FullScreen " + ((event.fullScreen)? "ON" : "OFF") + "\n";
+				// FullScreen end
+				if (!event.fullScreen) {
+					if (!_fixedSize && _vid.videoWidth && _vid.videoHeight)
+						resetVideoLayout(_vid.videoWidth, _vid.videoHeight);
+					else
+						resetVideoLayout(_width, _height);
+				} else { // FullScreen start
+					resetVideoLayout(width, height);
 				}
 			}
-			
 		]]>
 	</fx:Script>
 	
-	<mx:VBox>
-		<mx:Label text="HTTP Progressive : " fontWeight="bold"/>
-		<mx:HBox>
-			<mx:VBox width="450">
-				<mx:HBox>
-					<mx:TextInput id="address" width="300" text="http://127.0.0.1/test123.flv"/>
-					<mx:Button id="change" label="Connect" click="connectHTTP()"/>
-				</mx:HBox>
-			</mx:VBox>
-			<mx:VideoDisplay id="video" width="400" height="300"/>
-		</mx:HBox>
-		<mx:Label text="RTMP/RTMFP : " fontWeight="bold"/>
-		<mx:HBox>
-			<mx:VBox width="450" height="300">
-				<mx:HBox>
-					<mx:TextInput id="address2" width="300" text="rtmfp://127.0.0.1/test123"/>
-					<mx:Button id="change2" label="Connect" click="connectVideo2()"/>
-				</mx:HBox>
-				<mx:HBox width="100%">
-					<mx:Label text="NetGroup* : "/>
-					<mx:TextInput width="100%" id="group" text=""/>
-				</mx:HBox>
-				<mx:Label text="*: No NetGroup if empty" fontStyle="italic"/>
-				<s:TextArea width="100%" height="100%" id="consoleRTMP" visible="true"/>
-			</mx:VBox>
-			<mx:VBox id="containerVideo" width="400" height="300">
-				<mx:UIComponent id="video2" width="100%" height="100%"/>
-			</mx:VBox>
-			<mx:Button id="btFullScreen" click="onFullScreen()" label="Full Screen"/>
-		</mx:HBox>
-		<mx:HBox width="100%">
-		  <mx:Label text="Messages : "/>
-		  <mx:TextInput width="100%" id="messages" editable="false"/>
-		</mx:HBox>
+	<mx:VBox id="containerVideo" width="400" height="300">
+		<mx:UIComponent id="videoUI" width="100%" height="100%"/>
+		<mx:VBox id="containerTools" width="100%" verticalGap="0">
+			<mx:HBox width="100%" id="config" alpha="0.8" visible="false">
+				<mx:TabNavigator  width="100%" creationPolicy="all" alpha="0.8" historyManagementEnabled="false">
+					<mx:VBox label="Parameters" alpha="0.8">
+						<mx:HBox>
+							<mx:Label text="Url : "/>
+							<mx:TextInput id="address" width="100%" text="rtmfp://127.0.0.1/test123"/>
+							<mx:Button label="Connect" click="onConnect()"/>
+						</mx:HBox>
+						<mx:HBox width="100%">
+							<mx:Label text="NetGroup* : "/>
+							<mx:TextInput width="100%" id="group" text=""/>
+						</mx:HBox>
+						<mx:Label text="*: No NetGroup if empty" fontStyle="italic"/>
+						<mx:HBox width="100%">
+							<mx:Label text="Messages : "/>
+							<mx:TextInput width="100%" id="messages" editable="false"/>
+						</mx:HBox>
+					</mx:VBox>
+					<mx:VBox label="Logs" alpha="0.8">
+						<s:TextArea width="100%" height="100%" id="consoleRTMP" editable="false"/>
+					</mx:VBox>
+				</mx:TabNavigator>
+			</mx:HBox>
+			<mx:HBox id="tools" width="100%" visible="true">
+				<mx:Image id="btPause" source="@Embed('gtk-medias-mettre-en-pause-icone-4285-32.png')" click="pause()" />
+				<mx:Spacer id="spacerTools" width="100%"/>
+				<mx:Image id="btParameters" source="@Embed('parameters-icone-6400-32.png')" click="onParameters()" />
+				<mx:Image id="btFullScreen" source="@Embed('full-screen-window-icone-4401-32.png')" click="onFullScreen()" />
+			</mx:HBox>
+		</mx:VBox>
 	</mx:VBox>
 </mx:Application>

@@ -23,7 +23,7 @@
         <style type="text/css" media="screen"> 
             html, body  { height:100%; }
             body { margin:0; padding:0; overflow:auto; text-align:center; 
-                   background-color: #66cc66; }   
+                   background-color: #CCCCCC; }   
             object:focus { outline:none; }
             #flashContent { display:none; }
         </style>
@@ -48,11 +48,32 @@
             // To use express install, set to playerProductInstall.swf, otherwise the empty string. 
             var xiSwfUrlStr = "playerProductInstall.swf";
             var flashvars = {};
+			
+			// ---------------- Added to get dynamically the query parameters ----------------- 
+            
+            var queryIndex = window.location.href.indexOf("?");
+            if (queryIndex > 0) {
+				var queryLength = window.location.href.length - queryIndex - 1;
+				
+				// Ignore everyting behind #
+				var hash = window.location.href.indexOf("#");
+				if (hash > 0)
+					queryLength -= (window.location.href.length - hash);
+					
+            	var query = window.location.href.substr(queryIndex+1,queryLength);
+            	var tabParams = query.split("&");
+            	for (var i = 0; i < tabParams.length; i++) {
+            		var tuple = tabParams[i].split("=");
+            		flashvars[tuple[0]]=tuple[1];
+            	}
+            }
+			
             var params = {};
             params.quality = "high";
             params.bgcolor = "#66cc66";
             params.allowscriptaccess = "always";
             params.allowfullscreen = "true";
+			//params.allowFullScreenInteractive = "true";
             var attributes = {};
             attributes.id = "VideoPlayer";
             attributes.name = "VideoPlayer";
@@ -86,6 +107,7 @@
         
         <noscript>
             <object classid="clsid:D27CDB6E-AE6D-11cf-96B8-444553540000" width="100%" height="100%" id="VideoPlayer">
+				<!--<param name="allowFullScreenInteractive" value="true" /> -->
                 <param name="movie" value="VideoPlayer.swf" />
                 <param name="quality" value="high" />
                 <param name="bgcolor" value="#66cc66" />
