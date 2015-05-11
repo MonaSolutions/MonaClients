@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:View xmlns:fx="http://ns.adobe.com/mxml/2009" 
+        xmlns:s="library://ns.adobe.com/flex/spark" 
+		xmlns:mx="library://ns.adobe.com/flex/mx" 
+		title="HomeView" creationComplete="init()" actionBarVisible="false">
+	
+	<fx:Script>
+		<![CDATA[
+			import mx.collections.ArrayList;
+			import mx.utils.URLUtil;
+			import flash.media.H264VideoStreamSettings;
+			import flash.desktop.NativeApplication;
+			import flash.desktop.SystemIdleMode;
+			
+			private var _publishName:String;
+			private var _urlPath:String;
+			
+			private var _mic:Microphone;
+			private var _cam:Camera;
+			private var _dump:Boolean = false;
+			
+			private var _connection:NetConnection;			
+			private var _connection2:NetConnection; // Connection with NetGroup
+			private var _outstream:NetStream;
+			private var _netGroup:NetGroup;
+			
+			private var _videoCodec:H264VideoStreamSettings;
+			
+			[Bindable] private var listCam:ArrayList = new ArrayList();
+			[Bindable] private var listVideoCodec:ArrayList = new ArrayList(["H264 Baseline","H264 Main","Sorenson"]);
+			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex"]);
+			[Bindable] private var listEchoCancellation:ArrayList = new ArrayList(["Normal","Headphones","Off"]);
+			[Bindable] private var listQuality:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
+			
+			// init camera
+			private function init():void {
+				// Avoid sleep mode
+				NativeApplication.nativeApplication.systemIdleMode = SystemIdleMode.KEEP_AWAKE;
+				
+				// Select the 1st audio codec & init microphone
+				comboAudioCodec.selectedIndex = 0;
+				onEchoChanged();
+				
+				// Init camera parameters and select the first one
+				for (var index:String in Camera.names) {
+					listCam.addItem(Camera.names[index]);
+				}
+				// Set the first camera and video quality
+				if (listCam.length > 0) {
+					comboCam.selectedIndex = 0;
+					comboQuality.selectedItem = "640x480";
+					onCamChange();
+				}
+				
+				// Select the first video codec
+				comboVideoCodec.selectedIndex = 0;
+				onVideoCodec();
+			}
+			
+			// net status handler for the NetConnection : connect the netstream and publish
+			private function onStatus(evt:NetStatusEvent):void { 
+				
+				console.text +=  "NetConnection event : " + evt.info.code + "\n";
+				
+				switch(evt.info.code) {
+					case "NetConnection.Connect.Success":
+					
+						if (_dump) // First activate publication dump if requested
+							NetConnection(evt.target).call("dumpON", null);
+						
+						// Classic publishing
+						if (evt.target==_connection) {
+							_outstream = new NetStream(_connection);
+							_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
+							_outstream.attachCamera(_cam);
+							_outstream.attachAudio(_mic);
+							_outstream.videoStreamSettings = _videoCodec;
+							_outstream.publish(_publishName);
+						} else { // NetGroup publishing
+							
+							var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
+							groupSpec.peerToPeerDisabled = false; 
+							groupSpec.serverChannelEnabled=true; 
+							groupSpec.ipMulticastMemberUpdatesEnabled=true; 
+							groupSpec.multicastEnabled=true; 
+							groupSpec.postingEnabled=true;
+							var groupId:String = groupSpec.groupspecWithAuthorizations(); 
+							
+							console.text += "GroupSpec created : " + groupId + "\n";
+							_outstream = new NetStream(_connection2, groupId);
+							_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
+							_outstream.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusOutstream);
+							
+							_netGroup = new NetGroup(_connection2,groupId); 
+							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
+								console.text +=  "NetGroup event : " + evt.info.code + "\n"; 
+							});
+						}
+						break;
+					case "NetStream.Connect.Success":
+						if (evt.target==_connection2) {
+							_outstream.attachCamera(_cam);
+							_outstream.attachAudio(_mic);
+							_outstream.videoStreamSettings = _videoCodec;
+							_outstream.publish(_publishName);
+						}
+						break;
+					case "NetConnection.Connect.Closed":
+						btPublish.label = "Publish";
+						cbDump.enabled = true;
+						break;
+				}
+			}
+			
+			// net status handler for the NetStream
+			private function onStatusOutstream(evt:Event):void {
+				if (evt is AsyncErrorEvent)
+					console.text +=  "NetSream error : " + AsyncErrorEvent(evt).text + "\n"; 
+				else
+					console.text +=  "NetStream event : " + NetStatusEvent(evt).info.code + "\n";
+			}
+			
+			// Connect, then publish (or disconnect)
+			private function connect():void {
+				
+				if (_connection) {
+					_connection.close();
+					_connection = null;
+				}else if (_connection2) {
+					_connection2.close();
+					_connection2 = _connection;
+				} else {
+				
+					var lastSlash:int = address.text.lastIndexOf("/");
+					_urlPath=address.text.substr(0,lastSlash);
+					_publishName=address.text.substr(lastSlash+1);
+					if (_publishName == "" || _publishName == "VideoPublisher") {
+						console.text += "Please type a publication name\n";
+						return;
+					}
+	
+					if (group.text == "") { // Classic publish
+						_connection = new NetConnection();
+						_connection.connect(_urlPath);
+						_connection.addEventListener(NetStatusEvent.NET_STATUS, onStatus);
+					} else { // Publish to NetGroup
+						_connection2 = new NetConnection();
+						_connection2.connect(_urlPath);
+						_connection2.addEventListener(NetStatusEvent.NET_STATUS, onStatus);
+					}
+					btPublish.label = "Unpublish";
+					cbDump.enabled = false;
+				}
+			}
+			
+			// Send a message to all
+			private function write():void {
+				
+				// Classic publisher
+				_outstream.send("message2All", message.text);
+				message.text = "";
+			}
+			
+			// Activate/Disactivate echo
+			private function onMicroChange():void {
+				console.text += (cbMicro.selected)? "Echo tolerant\n" : "No echo\n";
+				if (_mic)
+					_mic.setSilenceLevel((cbMicro.selected)? 10 : 100);
+			}
+			
+			// Activate/Disactivate echo
+			private function onDumpChange():void {
+				_dump = cbDump.selected;
+			}
+			
+			// Change the codec used for video compression
+			private function onVideoCodec():void {
+				switch(comboVideoCodec.selectedItem) {
+					case "Sorenson":
+						_videoCodec = null;
+						break;
+					case "H264 Baseline":
+						_videoCodec = new H264VideoStreamSettings();
+						_videoCodec.setProfileLevel(H264Profile.BASELINE, "3");
+						break;
+					case "H264 Main":
+						_videoCodec = new H264VideoStreamSettings();
+						_videoCodec.setProfileLevel(H264Profile.MAIN, "3");
+						break;						
+				}
+			}
+			
+			// Change the codec used for audio compression
+			private function onAudioCodec():void {
+				if (_mic)
+					_mic.codec = comboAudioCodec.selectedItem;
+			}
+			
+			// Change the microphone properties
+			private function onEchoChanged():void {
+				var options:MicrophoneEnhancedOptions = new MicrophoneEnhancedOptions();
+				_mic = Microphone.getMicrophone();// default microphone
+				if (Microphone.getEnhancedMicrophone()) {
+					switch(echoCancellation.selectedItem){
+						case "Normal":
+							_mic = Microphone.getEnhancedMicrophone();
+							options.mode = MicrophoneEnhancedMode.FULL_DUPLEX;
+							break;
+						case "Headphones":
+							_mic = Microphone.getEnhancedMicrophone();
+							options.mode = MicrophoneEnhancedMode.HEADSET;
+							break;
+					}
+				}
+				if (!_mic) {
+					console.text += "No Microphone founded\n";
+					return;
+				}
+				_mic.enhancedOptions = options;
+				if(_outstream)
+					_outstream.attachAudio(_mic);
+				onAudioCodec();
+			}
+			
+			// Change the camera used by player
+			private function onCamChange():void {
+				var selection:String = String(comboCam.selectedIndex);
+				_cam = Camera.getCamera(selection);
+				player.attachCamera(_cam);
+				 
+				// Update video quality
+				onQualityChange();
+			}
+			
+			// Rotate by 45°
+			private function rotate():void {
+				var angle:int = 45;
+				var matrix:Matrix = player.transform.matrix;
+				// translation |  x  |  y  |
+				// 0		   |  0  |  0  |
+				// π*1/2       |  0  | -h  |
+				// π           | -w  | -h  |
+				// π*3/2       | -w  |  0  |
+				matrix.translate((angle%4 > 1)? -player.width : 0,((angle+1)%4 > 1)? -player.height : 0);
+				matrix.rotate(Math.PI*(angle/2));
+				if (angle % 2)
+					matrix.scale(player.width/player.height,player.height/player.width);
+				player.transform.matrix = matrix;
+			}
+			
+			// Change the quality of the video
+			private function onQualityChange():void {
+				var resolution:Array = comboQuality.selectedItem.split("x");
+				var w:int = resolution[0];
+				var h:int = resolution[1];
+				_cam.setMode(w, h, 5);
+			}
+			
+		]]>
+	</fx:Script>
+	<mx:TabNavigator  width="100%" height="100%" creationPolicy="all" historyManagementEnabled="false">
+		<s:NavigatorContent label="Camera">
+			<s:VGroup width="100%" height="100%">
+				<s:HGroup width="100%">
+					<s:Label><s:text>Camera</s:text></s:Label>
+					<s:DropDownList id="comboCam" dataProvider="{listCam}" width="100%" change="onCamChange()"/>
+					<s:Button icon="@Embed('../../icons/rotate-little.png')" click="rotate()"/>
+				</s:HGroup>
+				<mx:VideoDisplay width="100%" height="100%" id="player"/>
+			</s:VGroup>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="Settings">
+			<s:VGroup width="100%" height="100%">
+				<s:HGroup width="100%">
+					<s:CheckBox selected="true" label="Echo" change="onMicroChange()" id="cbMicro"/>
+					<s:CheckBox selected="false" label="Dump" change="onDumpChange()" id="cbDump"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label><s:text>Address</s:text></s:Label>
+					<s:TextInput width="100%" text="rtmfp://localhost/test123" id="address"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label><s:text>NetGroup</s:text></s:Label>
+					<s:TextInput width="100%" text="" id="group"/>
+					<s:Button label="Publish" click="connect()" id="btPublish" />
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label><s:text>Message</s:text></s:Label>
+					<s:TextInput width="100%" id="message"/>
+					<s:Button label="Send" click="write()"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label><s:text>Video Codec</s:text></s:Label>
+					<s:DropDownList id="comboVideoCodec" dataProvider="{listVideoCodec}" width="100%" change="onVideoCodec()"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label><s:text>Quality</s:text></s:Label>
+					<s:DropDownList id="comboQuality" dataProvider="{listQuality}" width="100%" change="onQualityChange()"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label><s:text>Audio Codec</s:text></s:Label> 
+					<s:DropDownList id="comboAudioCodec" dataProvider="{listAudioCodec}" width="100%" change="onAudioCodec()"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label><s:text>Echo Cancellation</s:text></s:Label>
+					<s:DropDownList id="echoCancellation" dataProvider="{listEchoCancellation}" width="100%" change="onEchoChanged();"/>
+				</s:HGroup>
+				<s:TextArea height="100%" width="100%" id="console" editable="false"/>
+			</s:VGroup>
+		</s:NavigatorContent>
+	</mx:TabNavigator>
+</s:View>
