@@ -8,24 +8,7 @@ function onConnection(client)
 		client.dump = true
 	end
 	
-	-- TODO : make it works
-	function client:onSubscribe(listener)
-		
-		NOTE("listener.parameters : ")
-		for k, v in pairs(publication.parameters) do
-			INFO(k, " : ", v)	
-		end
-	end
-	
 	function client:onPublish(publication)
-		
-		-- Send messages from publisher to listeners (Only for classic Publisher)
-		function publication:onData(name,packet)
-			INFO("New Message : ", name, " ; ", packet)
-			for listener, nothing in pairs(publication.listeners) do
-				listener.client.writer:writeInvocation(name, packet)
-			end
-		end
 		
 		if not client.dump then return end
 		

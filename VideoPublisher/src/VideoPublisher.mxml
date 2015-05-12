@@ -27,7 +27,7 @@
 			[Bindable] private var listVideoCodec:ArrayList = new ArrayList(["H264 Baseline","H264 Main","Sorenson"]);
 			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex"]);
 			[Bindable] private var listEchoCancellation:ArrayList = new ArrayList(["Normal","Headphones","Off"]);
-			[Bindable] private var listQuality:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","320x180","480x270","640x360"]);
+			[Bindable] private var listQuality:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
 			
 			// init camera
 			private function init():void {
@@ -73,7 +73,7 @@
 							_outstream.attachAudio(_mic);
 							_outstream.videoStreamSettings = _videoCodec;
 							_outstream.publish(_publishName);
-						} else { // NetGroup listening
+						} else { // NetGroup publishing
 							
 							var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
 							groupSpec.peerToPeerDisabled = false; 
@@ -194,22 +194,23 @@
 			// Change the microphone properties
 			private function onEchoChanged():void {
 				var options:MicrophoneEnhancedOptions = new MicrophoneEnhancedOptions();
-				switch(echoCancellation.selectedLabel){
-					case "Normal":
-						_mic = Microphone.getEnhancedMicrophone();
-						options.mode = MicrophoneEnhancedMode.FULL_DUPLEX;
-						break;
-					case "Headphones":
-						_mic = Microphone.getEnhancedMicrophone();
-						options.mode = MicrophoneEnhancedMode.HEADSET;
-						break;
-					case "Off": {
-						_mic = Microphone.getMicrophone();
-						break;
+				_mic = Microphone.getMicrophone();// default microphone
+				if (Microphone.getEnhancedMicrophone()) {
+					switch(echoCancellation.selectedItem){
+						case "Normal":
+							_mic = Microphone.getEnhancedMicrophone();
+							options.mode = MicrophoneEnhancedMode.FULL_DUPLEX;
+							break;
+						case "Headphones":
+							_mic = Microphone.getEnhancedMicrophone();
+							options.mode = MicrophoneEnhancedMode.HEADSET;
+							break;
 					}
 				}
-				if(!_mic)
+				if (!_mic) {
+					console.text += "No Microphone founded\n";
 					return;
+				}
 				_mic.enhancedOptions = options;
 				if(_outstream)
 					_outstream.attachAudio(_mic);
@@ -228,31 +229,10 @@
 			
 			// Change the quality of the video
 			private function onQualityChange():void {
-				var w:int = 160; 
-				var h:int = 120;
-				switch(comboQuality.selectedLabel) {
-					case "160x120":
-						break;
-					case "320x240":
-						w = 320; h = 240;
-						break;
-					case "480x360":
-						w = 480; h = 360;
-						break;
-					case "640x480":
-						w = 640; h = 480;
-						break;
-					case "320x180":
-						w = 320; h = 180;
-						break;
-					case "480x270":
-						w = 480; h = 270;
-						break;
-					case "640x360":
-						w = 640; h = 360;
-						break;
-				}
-				_cam.setMode(w, h, 15);
+				var resolution:Array = comboQuality.selectedLabel.split("x");
+				var w:int = resolution[0];
+				var h:int = resolution[1];
+				_cam.setMode(w, h, 5);
 			}
 			
 		]]>
@@ -268,7 +248,7 @@
 				</mx:HBox>
 				<mx:HBox width="100%">
 					<mx:Label text="Address"/>
-					<mx:TextInput width="100%" text="rtmfp://localhost/VideoPublisher/test123" id="address"/>
+					<mx:TextInput width="100%" text="rtmfp://localhost/test123" id="address"/>
 				</mx:HBox>
 				<mx:HBox width="100%">
 					<mx:Label text="NetGroup**"/>
@@ -290,7 +270,7 @@
 				</mx:HBox>
 				<mx:HBox>
 					<mx:Label text="Quality"/>
-					<mx:ComboBox id="comboQuality" dataProvider="{listQuality}" change="onQualityChange()" editable="false"/>
+					<mx:ComboBox id="comboQuality" dataProvider="{listQuality}" change="onQualityChange()" selectedItem="640x480" editable="false"/>
 				</mx:HBox>
 				<mx:HBox width="100%">
 					<mx:Label text="Audio Codec"/>
@@ -305,6 +285,6 @@
 			</mx:VBox>
 			<mx:VideoDisplay width="400" height="300" id="player"/>
 		</mx:HBox>
-		<s:TextArea height="100%" width="100%" id="console" visible="true"/>
+		<s:TextArea height="100%" width="100%" id="console" editable="false"/>
 	</mx:VBox>
 </mx:Application>

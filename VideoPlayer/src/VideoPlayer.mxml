@@ -1,20 +1,54 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>		
+<!--
+This file is part of MonaClients.
+
+MonaClients is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+MonaClients is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
+-->
 <mx:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
 				xmlns:s="library://ns.adobe.com/flex/spark" 
-				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="400" minHeight="300" applicationComplete="init();" backgroundColor="0xCCCCCC" paddingTop="0" paddingLeft="0" paddingBottom="0" paddingRight="0">
-	<fx:Declarations>
-	</fx:Declarations>
+				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="400" minHeight="300" historyManagementEnabled="false" applicationComplete="init();" paddingTop="0" paddingLeft="0" paddingBottom="0" paddingRight="0">
+	
 	<fx:Script>
-		<![CDATA[			
+		<![CDATA[
+			/*
+			 * Usage : http://<host>/VideoPlayer/[?options]
+			 * 
+			 * Options are :
+			 * 
+			 * - fit				    The player will be fitted to the window
+			 * - protocol=<rtmp|rtmfp>  Set the protocol to use. This option works only in combination with "url" option
+			 * - url=<url>              Set the url to connect to. This option works only in combination with "protocol" option
+			 * - noconfig               Remove the configuration's panel
+			 * - notools                Remove all the tools. It means that you need "url" and "protocol" options to connect to a stream
+			 * - width=<integer>        Fixed width of the player
+			 * - height=<integer>       Fixed height of the player
+			 * - unbuffered             Tell to MonaServer to not bufferize the stream
+			 * - unreliable             Set the videoReliable and audioReliable attributes of the NetStream to false
+			 * 
+			 * Example : http://127.0.0.1/VideoPlayer/?fit will open the player in fit mode
+			 */
+		
 			import flash.events.FullScreenEvent;
 			import flash.events.MouseEvent;
+			import flash.events.IOErrorEvent;
 			import flash.events.TimerEvent;
 			import flash.filters.ColorMatrixFilter;
 			import flash.utils.Timer;
 			import mx.core.Container;
 			import mx.utils.URLUtil;
 			
-			private var _filter:ColorMatrixFilter;
+			private var _filter:ColorMatrixFilter; // Color filter for button tools
 			
 			private var _netConnection:NetConnection;
 			private var _receiveNS:NetStream;
@@ -28,8 +62,12 @@
 			private var _height:int = 300;
 			private var _fixedSize:Boolean = false;
 			
+			private var _timerStats:Timer; // Timer for showing Statistics (disabled by default)
+			private const TIMER_STATS_DELAY:int = 500;
+			
 			private function init():void {
 				consoleRTMP.text += "Initialization of the video player\n";
+				
 				// Add RTMP/RTMFP video player 
 				_vid.opaqueBackground = 0x000000;
 				videoUI.addChild(_vid);
@@ -100,6 +138,20 @@
 				
 				// Update the size of the video layout
 				resetVideoLayout(_width, _height);
+				
+				// Add close window handler to close connection
+				ExternalInterface.addCallback("sendToActionScript", closeWindow);
+			}
+			
+			/**
+			 * (Chrome fix)
+			 * This function is called from Javascript when the window
+			 * is closed for closing an eventual connection
+			 * It is very IMPORTANT to close correctly the connection
+			 */
+			public function closeWindow(value:String):void {
+				if (_netConnection && _netConnection.connected)
+					_netConnection.close();
 			}
 			
 			// Change color of Toolbar buttons on over/out
@@ -124,10 +176,8 @@
 			
 			// If "fit" mode : resize the video when stage is resized 
 			private function onStageResized(e:Event):void {
-				if (stage.displayState != StageDisplayState.FULL_SCREEN) {
-					consoleRTMP.text += "Stage resized (" + ((_width == -1)? (width+"x"+height) : (_width+"x"+_height)) + ")\n";
+				if (stage.displayState != StageDisplayState.FULL_SCREEN)
 					resetVideoLayout(_width, _height);
-				}
 			}
 			
 			// Reset Video Layout and position
@@ -145,7 +195,7 @@
 					// Set the background of tools
 					tools.graphics.clear();
 					tools.graphics.beginFill(uint(0xcccccc), 0.6);
-					tools.graphics.drawRect(0,0,width, 32);
+					tools.graphics.drawRect(0,0,newWidth, 32);
 					tools.graphics.endFill();
 				}
 			}
@@ -162,9 +212,11 @@
 			// Manage NetStream events
 			private function onStatusNetStream(evt:Event):void {
 				 
-				 if (evt is AsyncErrorEvent)
+				if (evt is IOErrorEvent)
+					 consoleRTMP.text +=  "NetStream error : " + IOErrorEvent(evt).text + "\n"; 
+				else if (evt is AsyncErrorEvent)
 					 consoleRTMP.text +=  "NetStream error : " + AsyncErrorEvent(evt).text + "\n"; 
-				 else {
+				else {
 					 var event:NetStatusEvent = NetStatusEvent(evt);
 					 consoleRTMP.text +=  "NetStream event : " + event.info.code + "\n";
 					 
@@ -185,10 +237,10 @@
 							if (!_fixedSize)
 								resetVideoLayout(_vid.videoWidth, _vid.videoHeight);
 							break;
-					 }
-				 }
-			 }
-			
+					}
+				}
+			}
+			 
 			// Manage NetConnection events
 			private function onStatusNetConnection(event:NetStatusEvent):void {
 				
@@ -201,8 +253,10 @@
 							_receiveNS = new NetStream(_netConnection);
 							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
 							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
+							_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
 							_receiveNS.client = this;
 							_vid.attachNetStream(_receiveNS);
+							
 							_receiveNS.play(_name);
 						} else { // Netgroup listening
 							
@@ -218,6 +272,7 @@
 							_receiveNS = new NetStream(_netConnection, groupId);
 							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
 							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
+							_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
 							//_receiveNS.inBufferSeek = false;
 							_receiveNS.client=this;
 							
@@ -293,6 +348,47 @@
 					resetVideoLayout(width, height);
 				}
 			}
+			
+			// Enable/Disable statistics
+			private function toggleStats():void {
+				if (_timerStats && _timerStats.running) {
+					_timerStats.stop();
+					btStatistics.label = "Start";
+				} else {
+					btStatistics.label = "Stop";
+					if (!_timerStats) {
+						_timerStats = new Timer(TIMER_STATS_DELAY);
+						_timerStats.addEventListener(TimerEvent.TIMER, onStatistics);
+					}
+						
+					_timerStats.start();
+				}
+			}
+			
+			// Callback of statistics timer
+			private function onStatistics(event:TimerEvent):void {
+				if (_netConnection && _netConnection.connected && _receiveNS) {
+					
+					statBuffLength.text = _receiveNS.bufferLength.toString();
+					statBytesLoaded.text = _receiveNS.bytesLoaded.toString();
+					statCurrentFPS.text = _receiveNS.currentFPS.toFixed(2);
+					statLiveDelay.text = _receiveNS.liveDelay.toString();
+					statTime.text = _receiveNS.time.toFixed(2);
+						
+					statByteCount.text = _receiveNS.info.byteCount.toString();
+					statDroppedFrames.text = _receiveNS.info.droppedFrames.toString();
+					statMaxBytesSec.text = (_receiveNS.info.maxBytesPerSecond/1000).toFixed(2);
+					statPlaybackBytesSec.text = (_receiveNS.info.playbackBytesPerSecond/1000).toFixed(2);
+					statSRTT.text = _receiveNS.info.SRTT.toString();
+					
+					statVideoBuffLen.text = _receiveNS.info.videoBufferLength.toString();
+					statVideoBytesSec.text = (_receiveNS.info.videoBytesPerSecond/1000).toFixed(2);
+					statVideoLossRate.text = _receiveNS.info.videoLossRate.toString();
+					statAudioBuffLen.text = _receiveNS.info.audioBufferLength.toString();
+					statAudioBytesSec.text = (_receiveNS.info.audioBytesPerSecond/1000).toFixed(2);
+					statAudioLossRate.text = _receiveNS.info.audioLossRate.toString();
+				}
+			}
 		]]>
 	</fx:Script>
 	
@@ -319,6 +415,47 @@
 					</mx:VBox>
 					<mx:VBox label="Logs" alpha="0.8">
 						<s:TextArea width="100%" height="100%" id="consoleRTMP" editable="false"/>
+					</mx:VBox>
+					<mx:VBox label="Statistics" alpha="0.8">
+						<mx:HBox width="100%">
+							<mx:Button id="btStatistics" label="Start" click="toggleStats()"/>
+							<mx:Label text="Buffer Length : "/>
+							<mx:Label id="statBuffLength" text=""/>
+							<mx:Label text="Bytes Loaded : "/>
+							<mx:Label id="statBytesLoaded" text=""/>
+							<mx:Label text="Current FPS : "/>
+							<mx:Label id="statCurrentFPS" text=""/>
+							<mx:Label text="Live Delay : "/>
+							<mx:Label id="statLiveDelay" text=""/>
+							<mx:Label text="Time : "/>
+							<mx:Label id="statTime" text=""/>
+						</mx:HBox>
+						<mx:HBox width="100%">
+							<mx:Label text="Byte Count : "/>
+							<mx:Label id="statByteCount" text=""/>
+							<mx:Label text="Dropped Frames : "/>
+							<mx:Label id="statDroppedFrames" text=""/>
+							<mx:Label text="Max Kbps : "/>
+							<mx:Label id="statMaxBytesSec" text=""/>
+							<mx:Label text="Playback Kbps : "/>
+							<mx:Label id="statPlaybackBytesSec" text=""/>
+							<mx:Label text="SRTT : "/>
+							<mx:Label id="statSRTT" text=""/>
+						</mx:HBox>
+						<mx:HBox width="100%">
+							<mx:Label text="Video Buffer Length : "/>
+							<mx:Label id="statVideoBuffLen" text=""/>
+							<mx:Label text="Video Kbps : "/>
+							<mx:Label id="statVideoBytesSec" text=""/>
+							<mx:Label text="Video Loss Rate : "/>
+							<mx:Label id="statVideoLossRate" text=""/>
+							<mx:Label text="Audio Buffer Length : "/>
+							<mx:Label id="statAudioBuffLen" text=""/>
+							<mx:Label text="Audio Kbps : "/>
+							<mx:Label id="statAudioBytesSec" text=""/>
+							<mx:Label text="Audio Loss Rate : "/>
+							<mx:Label id="statAudioLossRate" text=""/>
+						</mx:HBox>
 					</mx:VBox>
 				</mx:TabNavigator>
 			</mx:HBox>
