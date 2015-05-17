@@ -15,10 +15,10 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 -->
-<mx:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
 				xmlns:s="library://ns.adobe.com/flex/spark" 
-				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="400" minHeight="300" historyManagementEnabled="false" applicationComplete="init();" paddingTop="0" paddingLeft="0" paddingBottom="0" paddingRight="0">
-	
+				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="400" minHeight="300" applicationComplete="init();">
+				
 	<fx:Script>
 		<![CDATA[
 			/*
@@ -44,8 +44,8 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			import flash.events.IOErrorEvent;
 			import flash.events.TimerEvent;
 			import flash.filters.ColorMatrixFilter;
+			import flash.geom.Matrix;
 			import flash.utils.Timer;
-			import mx.core.Container;
 			import mx.utils.URLUtil;
 			
 			private var _filter:ColorMatrixFilter; // Color filter for button tools
@@ -61,6 +61,7 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			private var _width:int = 400;
 			private var _height:int = 300;
 			private var _fixedSize:Boolean = false;
+			private var _angle:int = -1; // Rotation angle of the video (in radian, set by MobilePublisher)
 			
 			private var _timerStats:Timer; // Timer for showing Statistics (disabled by default)
 			private const TIMER_STATS_DELAY:int = 500;
@@ -162,7 +163,24 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			private function showToolBar(event:MouseEvent):void { tools.visible = true;	}
 			private function unshowToolBar(event:MouseEvent):void { tools.visible = false;	}
 			
-			// Show MetaData informations (called from Mona)
+			// Rotate the video layout if needed
+			private function doRotation(delta:int):void {
+				if (delta > 0) {
+					var matrix:Matrix = _vid.transform.matrix;
+					// translation |  x  |  y  |
+					// 0		   |  0  |  0  |
+					// π*1/2       |  0  | -h  |
+					// π           | -w  | -h  |
+					// π*3/2       | -w  |  0  |
+					matrix.translate((delta%4 > 1)? -_vid.width : 0,((delta+1)%4 > 1)? -_vid.height : 0);
+					matrix.rotate(Math.PI*(delta/2));
+					if (delta % 2)
+						matrix.scale(_vid.width / _vid.height,_vid.height / _vid.width);
+					_vid.transform.matrix = matrix;
+				}
+			}
+			
+			// Show MetaData informations (called by Mona)
 			public function onMetaData(infoObject:Object):void { 
 				consoleRTMP.text += "MetaData : \n";
 				for (var key:String in infoObject) { 
@@ -172,7 +190,19 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 				// Resize video
 				if (!_fixedSize && infoObject["width"] && infoObject["height"])
 					resetVideoLayout(infoObject["width"], infoObject["height"]);
-			}
+					
+				// Rotate the video layout (called by MobilePublisher)
+				if (infoObject["angle"] != null) {
+					var angle:int = int(infoObject["angle"]);
+					var delta:int = angle;
+					// Calculate the delta with last angle
+					if (_angle != -1)
+						delta = (angle<_angle)? angle - _angle + 4 : angle - _angle;
+					_angle = angle;
+					doRotation(delta);
+				} else if (_angle > -1)
+					_angle = -1;
+			}		
 			
 			// If "fit" mode : resize the video when stage is resized 
 			private function onStageResized(e:Event):void {
@@ -186,15 +216,21 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 					newWidth = width;
 					newHeight = height;
 				}
+				// Reset rotation before resizing
+				if (_angle > 0)
+					doRotation(4 - _angle);
 				_vid.width = containerVideo.width = newWidth;
 				_vid.height = containerVideo.height = newHeight;
+				if (_angle > 0)
+					doRotation(_angle); // Rotate
+				
 				if (tools) {
 					// update tools & config position
 					containerTools.y = newHeight - 32 - ((config)? config.height : 0);
 					
 					// Set the background of tools
 					tools.graphics.clear();
-					tools.graphics.beginFill(uint(0xcccccc), 0.6);
+					tools.graphics.beginFill(uint(0xCCCCCC), 0.6);
 					tools.graphics.drawRect(0,0,newWidth, 32);
 					tools.graphics.endFill();
 				}
@@ -435,9 +471,9 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 							<mx:Label id="statByteCount" text=""/>
 							<mx:Label text="Dropped Frames : "/>
 							<mx:Label id="statDroppedFrames" text=""/>
-							<mx:Label text="Max Kbps : "/>
+							<mx:Label text="Max KBps : "/>
 							<mx:Label id="statMaxBytesSec" text=""/>
-							<mx:Label text="Playback Kbps : "/>
+							<mx:Label text="Playback KBps : "/>
 							<mx:Label id="statPlaybackBytesSec" text=""/>
 							<mx:Label text="SRTT : "/>
 							<mx:Label id="statSRTT" text=""/>
@@ -445,13 +481,13 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 						<mx:HBox width="100%">
 							<mx:Label text="Video Buffer Length : "/>
 							<mx:Label id="statVideoBuffLen" text=""/>
-							<mx:Label text="Video Kbps : "/>
+							<mx:Label text="Video KBps : "/>
 							<mx:Label id="statVideoBytesSec" text=""/>
 							<mx:Label text="Video Loss Rate : "/>
 							<mx:Label id="statVideoLossRate" text=""/>
 							<mx:Label text="Audio Buffer Length : "/>
 							<mx:Label id="statAudioBuffLen" text=""/>
-							<mx:Label text="Audio Kbps : "/>
+							<mx:Label text="Audio KBps : "/>
 							<mx:Label id="statAudioBytesSec" text=""/>
 							<mx:Label text="Audio Loss Rate : "/>
 							<mx:Label id="statAudioLossRate" text=""/>
@@ -467,4 +503,4 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			</mx:HBox>
 		</mx:VBox>
 	</mx:VBox>
-</mx:Application>
+</s:Application>

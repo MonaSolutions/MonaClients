@@ -2,6 +2,17 @@
 <mx:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
 				xmlns:s="library://ns.adobe.com/flex/spark" 
 				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="800" minHeight="600" applicationComplete="init()">
+				
+	<fx:Style>
+		@namespace s "library://ns.adobe.com/flex/spark";
+		@namespace mx "library://ns.adobe.com/flex/mx";
+		
+		mx|Panel {
+			backgroundColor: #869ca7;
+		}
+		
+	</fx:Style>
+				
 	<fx:Script>
 		<![CDATA[
 			import mx.collections.ArrayList;
@@ -27,7 +38,7 @@
 			[Bindable] private var listVideoCodec:ArrayList = new ArrayList(["H264 Baseline","H264 Main","Sorenson"]);
 			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex"]);
 			[Bindable] private var listEchoCancellation:ArrayList = new ArrayList(["Normal","Headphones","Off"]);
-			[Bindable] private var listQuality:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
+			[Bindable] private var listResolution:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
 			
 			// init camera
 			private function init():void {
@@ -222,36 +233,49 @@
 				 var selection:String = String(comboCam.selectedIndex);
 				 _cam = Camera.getCamera(selection);
 				 player.attachCamera(_cam);
+				if (_outstream)
+					_outstream.attachCamera(_cam);
 				 
 				 // Update video quality
-				 onQualityChange();
+				 onResolutionChange();
+				 onQuality();
+				 onKeyframes();
+			}
+			
+			// Change the resolution of the video
+			private function onResolutionChange():void {
+				var resolution:Array = comboResolution.selectedLabel.split("x");
+				var w:int = resolution[0];
+				var h:int = resolution[1];
+				_cam.setMode(w, h, fps.value);
 			}
 			
 			// Change the quality of the video
-			private function onQualityChange():void {
-				var resolution:Array = comboQuality.selectedLabel.split("x");
-				var w:int = resolution[0];
-				var h:int = resolution[1];
-				_cam.setMode(w, h, 5);
+			private function onQuality():void {
+				_cam.setQuality(bandwith.value*1000,quality.value);
 			}
 			
+			// Change the video frames rate
+			private function onKeyframes():void {
+				_cam.setKeyFrameInterval(keyframes.value);
+			}
 		]]>
 	</fx:Script>
 	<mx:VBox width="800" height="600" horizontalAlign="center">
 		<mx:HBox>
-			<mx:VBox width="390">
+			<mx:VBox width="430">
 				<mx:HBox width="100%">
 					<mx:Label text="Publisher" fontWeight="bold"/>
-					<mx:HRule width="160" visible="false"/>
+					<mx:HRule width="100%" visible="false"/>
 					<s:CheckBox selected="true" label="Echo" change="onMicroChange()" id="cbMicro"/>
-					<s:CheckBox selected="false" label="Dump*" change="onDumpChange()" id="cbDump"/>
+					<s:CheckBox selected="false" label="Dump*" change="onDumpChange()" id="cbDump" toolTip="Doesn't work with NetGroups" />
 				</mx:HBox>
 				<mx:HBox width="100%">
 					<mx:Label text="Address"/>
 					<mx:TextInput width="100%" text="rtmfp://localhost/test123" id="address"/>
 				</mx:HBox>
 				<mx:HBox width="100%">
-					<mx:Label text="NetGroup**"/>
+					<mx:Label text="NetGroup*" toolTip="No NetGroup if empty" />
 					<mx:TextInput width="100%" text="" id="group"/>
 					<mx:Button label="Publish" click="connect()" id="btPublish"/>
 				</mx:HBox>
@@ -260,30 +284,40 @@
 					<mx:TextInput width="100%" id="message"/>
 					<mx:Button label="Send" click="write()"/>
 				</mx:HBox>
-				<mx:HBox width="100%">
-					<mx:Label text="Camera"/>
-					<mx:ComboBox id="comboCam" dataProvider="{listCam}" change="onCamChange()" editable="false"/>
-				</mx:HBox>
-				<mx:HBox width="100%">
-					<mx:Label text="Video Codec"/>
-					<mx:ComboBox id="comboVideoCodec" dataProvider="{listVideoCodec}" change="onVideoCodec()" editable="false"/>
-				</mx:HBox>
-				<mx:HBox>
-					<mx:Label text="Quality"/>
-					<mx:ComboBox id="comboQuality" dataProvider="{listQuality}" change="onQualityChange()" selectedItem="640x480" editable="false"/>
-				</mx:HBox>
-				<mx:HBox width="100%">
-					<mx:Label text="Audio Codec"/>
-					<mx:ComboBox id="comboAudioCodec" dataProvider="{listAudioCodec}" change="onAudioCodec()" editable="false"/>
-				</mx:HBox>
-				<mx:HBox width="100%">
-					<mx:Label text="Echo Cancellation"/>
-					<mx:ComboBox id="echoCancellation" dataProvider="{listEchoCancellation}" change="onEchoChanged();"/>
-				</mx:HBox>
-				<mx:Label text="*: Dump doesn't work with NetGroups" fontStyle="italic"/>
-				<mx:Label text="**: No NetGroup if empty" fontStyle="italic"/>
+				
+				<mx:Panel title="Video" width="100%">
+					<mx:HBox width="100%">
+						<mx:Label text="Camera"/>
+						<mx:ComboBox id="comboCam" dataProvider="{listCam}" change="onCamChange()" editable="false"/>
+						<s:NumericStepper id="fps" minimum="1" maximum="60" change="onCamChange()" value="15" />
+						<mx:Label text="Fps"/>
+					</mx:HBox>
+					<mx:HBox>
+						<mx:Label text="Quality"/>
+						<s:NumericStepper id="quality" minimum="0" maximum="100" change="onQuality()" toolTip="0 means variable"/>
+						<mx:Label text="%"/>
+						<mx:ComboBox id="comboResolution" dataProvider="{listResolution}" change="onResolutionChange()" selectedItem="640x480" editable="false"/>
+						<s:NumericStepper id="bandwith" minimum="0" maximum="5000" change="onQuality()" value="16" toolTip="0 means variable"/>
+						<mx:Label text="KBps"/>
+					</mx:HBox>
+					<mx:HBox width="100%">						
+						<mx:Label text="Codec"/>
+						<mx:ComboBox id="comboVideoCodec" dataProvider="{listVideoCodec}" change="onVideoCodec()" editable="false"/>
+						<mx:Label text="Keyframes"/>
+						<s:NumericStepper id="keyframes" minimum="1" maximum="48" change="onKeyframes()" value="15"/>
+					</mx:HBox>
+				</mx:Panel>
+				
+				<mx:Panel title="Audio" width="100%">
+					<mx:HBox width="100%">
+						<mx:Label text="Codec"/>
+						<mx:ComboBox id="comboAudioCodec" dataProvider="{listAudioCodec}" change="onAudioCodec()" editable="false"/>
+						<mx:Label text="Echo Cancellation"/>
+						<mx:ComboBox id="echoCancellation" dataProvider="{listEchoCancellation}" change="onEchoChanged();"/>
+					</mx:HBox>
+				</mx:Panel>
 			</mx:VBox>
-			<mx:VideoDisplay width="400" height="300" id="player"/>
+			<mx:VideoDisplay width="360" height="280" id="player"/>
 		</mx:HBox>
 		<s:TextArea height="100%" width="100%" id="console" editable="false"/>
 	</mx:VBox>

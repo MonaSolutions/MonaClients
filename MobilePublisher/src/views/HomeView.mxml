@@ -26,11 +26,13 @@
 			
 			private var _videoCodec:H264VideoStreamSettings;
 			
+			private var _angle:int = 0; // Rotation angle of the video layout (in radian)
+			
 			[Bindable] private var listCam:ArrayList = new ArrayList();
 			[Bindable] private var listVideoCodec:ArrayList = new ArrayList(["H264 Baseline","H264 Main","Sorenson"]);
 			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex"]);
 			[Bindable] private var listEchoCancellation:ArrayList = new ArrayList(["Normal","Headphones","Off"]);
-			[Bindable] private var listQuality:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
+			[Bindable] private var listResolution:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
 			
 			// init camera
 			private function init():void {
@@ -48,7 +50,7 @@
 				// Set the first camera and video quality
 				if (listCam.length > 0) {
 					comboCam.selectedIndex = 0;
-					comboQuality.selectedItem = "640x480";
+					comboResolution.selectedItem = "640x480";
 					onCamChange();
 				}
 				
@@ -227,35 +229,56 @@
 				var selection:String = String(comboCam.selectedIndex);
 				_cam = Camera.getCamera(selection);
 				player.attachCamera(_cam);
+				if (_outstream)
+					_outstream.attachCamera(_cam);
 				 
 				// Update video quality
-				onQualityChange();
-			}
-			
-			// Rotate by 45°
-			private function rotate():void {
-				var angle:int = 45;
-				var matrix:Matrix = player.transform.matrix;
-				// translation |  x  |  y  |
-				// 0		   |  0  |  0  |
-				// π*1/2       |  0  | -h  |
-				// π           | -w  | -h  |
-				// π*3/2       | -w  |  0  |
-				matrix.translate((angle%4 > 1)? -player.width : 0,((angle+1)%4 > 1)? -player.height : 0);
-				matrix.rotate(Math.PI*(angle/2));
-				if (angle % 2)
-					matrix.scale(player.width/player.height,player.height/player.width);
-				player.transform.matrix = matrix;
+				onResolutionChange();
+				onQuality();
+				onKeyframes();
 			}
 			
 			// Change the quality of the video
-			private function onQualityChange():void {
-				var resolution:Array = comboQuality.selectedItem.split("x");
+			private function onResolutionChange():void {
+				var resolution:Array = comboResolution.selectedItem.split("x");
 				var w:int = resolution[0];
 				var h:int = resolution[1];
 				_cam.setMode(w, h, 5);
 			}
 			
+			// Change the quality of the video
+			private function onQuality():void {
+				_cam.setQuality(bandwith.value*1000,quality.value);
+			}
+			
+			// Change the video frames rate
+			private function onKeyframes():void {
+				_cam.setKeyFrameInterval(keyframes.value);
+			}	
+			
+			// Rotate by 90°
+			private function rotate():void {
+				_angle++;
+				if (_angle > 3)
+					_angle = 0;
+					
+				var matrix:Matrix = videoContainer.transform.matrix;
+				// translation |  x  |  y  |
+				// 0		   |  0  |  0  |
+				// π*1/2       |  0  | -h  |
+				// π           | -w  | -h  |
+				// π*3/2       | -w  |  0  |
+				matrix.translate((_angle%4 > 1)? -player.width : 0,((_angle+1)%4 > 1)? -player.height : 0);
+				matrix.rotate(Math.PI*(_angle/2));
+				if (_angle % 2)
+					matrix.scale(player.width/player.height,player.height/player.width);
+				player.transform.matrix = matrix;
+				
+				if (_outstream) {
+					var metaData:Object = {"angle":_angle};
+					_outstream.send("@setDataFrame", "onMetaData", metaData);
+				}
+			}		
 		]]>
 	</fx:Script>
 	<mx:TabNavigator  width="100%" height="100%" creationPolicy="all" historyManagementEnabled="false">
@@ -266,7 +289,9 @@
 					<s:DropDownList id="comboCam" dataProvider="{listCam}" width="100%" change="onCamChange()"/>
 					<s:Button icon="@Embed('../../icons/rotate-little.png')" click="rotate()"/>
 				</s:HGroup>
-				<mx:VideoDisplay width="100%" height="100%" id="player"/>
+				<s:HGroup width="100%" height="100%" id="videoContainer">
+					<mx:VideoDisplay width="100%" height="100%" id="player"/>
+				</s:HGroup>
 			</s:VGroup>
 		</s:NavigatorContent>
 		<s:NavigatorContent label="Settings">
@@ -295,7 +320,15 @@
 				</s:HGroup>
 				<s:HGroup width="100%">
 					<s:Label><s:text>Quality</s:text></s:Label>
-					<s:DropDownList id="comboQuality" dataProvider="{listQuality}" width="100%" change="onQualityChange()"/>
+					<s:NumericStepper id="quality" minimum="0" maximum="100" change="onQuality()" toolTip="0 means variable"/>
+					<s:Label text="%"/>
+					<s:DropDownList id="comboResolution" dataProvider="{listResolution}" width="100%" change="onResolutionChange()" selectedItem="640x480"/>
+					<s:NumericStepper id="bandwith" minimum="0" maximum="5000" change="onQuality()" value="16" toolTip="0 means variable"/>
+					<s:Label text="KBps"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label text="Keyframes"/>
+					<s:NumericStepper id="keyframes" minimum="1" maximum="48" change="onKeyframes()" value="15"/>
 				</s:HGroup>
 				<s:HGroup width="100%">
 					<s:Label><s:text>Audio Codec</s:text></s:Label> 
@@ -305,8 +338,10 @@
 					<s:Label><s:text>Echo Cancellation</s:text></s:Label>
 					<s:DropDownList id="echoCancellation" dataProvider="{listEchoCancellation}" width="100%" change="onEchoChanged();"/>
 				</s:HGroup>
-				<s:TextArea height="100%" width="100%" id="console" editable="false"/>
 			</s:VGroup>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="Logs">
+			<s:TextArea height="100%" width="100%" id="console" editable="false"/>
 		</s:NavigatorContent>
 	</mx:TabNavigator>
 </s:View>
