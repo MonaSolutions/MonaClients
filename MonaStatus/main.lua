@@ -18,9 +18,9 @@ function onConnection(client,response,...)
   INFO("Connection to status")
   
   -- Generate the array of publications
-  function client:getPublications()
+  function client:getStatistics(name)
     
-    local res = {}
+    local res = {publications={}, listeners={}, clients=#mona.clients}
     for k,pub in pairs(mona.publications) do
         local pubLine = {}
         pubLine.Name = pub.name
@@ -33,19 +33,21 @@ function onConnection(client,response,...)
         pubLine["Congestion"] = math.floor(getCongestion(pub.videoQOS)*100) .. "%\n" .. math.floor(getCongestion(pub.audioQOS)*100) .. "%"
         pubLine["Last Send"] = math.floor(currentTime-pub.videoQOS.lastSendingTime) .. "ms\n" .. math.floor(currentTime-pub.audioQOS.lastSendingTime) .. "ms"
         
-        table.insert(res, pubLine)
+        table.insert(res.publications, pubLine)
     end
+	
+	-- Get listeners of publication
+	if name then self:getListeners(name, res) end
     
     return res
   end
   
   -- Generate the array of listeners from one publication
-  function client:getListeners(publicationName)
+  function client:getListeners(publicationName, res)
     
     local pub = mona.publications[publicationName]
-    if not pub then return {} end
+    if not pub then return end
     
-    local res = {}
     for c,l in pairs(pub.listeners) do
         local listenerLine = {}
         
@@ -57,15 +59,8 @@ function onConnection(client,response,...)
         listenerLine["Congestion"] = math.floor(getCongestion(l.videoQOS)*100) .. "%\n" .. math.floor(getCongestion(l.audioQOS)*100) .. "%"
         listenerLine["Last Send"] = math.floor(currentTime-l.videoQOS.lastSendingTime) .. "ms\n" .. math.floor(currentTime-l.audioQOS.lastSendingTime) .. "ms"
         
-        table.insert(res, listenerLine)
+        table.insert(res.listeners, listenerLine)
     end
-    
-    return res
-  end
-  
-  -- Return the number of clients
-  function client:getClients()
-    return #mona.clients
   end
   
   -- RPC

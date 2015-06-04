@@ -22,9 +22,8 @@
 			
 			private var _conn:NetConnection = null;
 			private var _timerRefresh:Timer = null;
-			private var _timerListeners:Timer = null;
 			
-			private var _currentPublication:String;
+			private var _currentPublication:String = null;
 			
 			private function init():void {
 				tabPublication.columns[0].setStyle("fontWeight", "bold");
@@ -75,8 +74,6 @@
 						
 						if (_timerRefresh)
 							_timerRefresh.stop();
-						if (_timerListeners)
-							_timerListeners.stop();
 						break;
 					default:
 						Alert.show(event.info.code);
@@ -85,12 +82,7 @@
 			
 			// Refresh publications & clients lists
 			private function onTimerRefresh(event:TimerEvent):void {
-				_conn.call("getPublications", new Responder(onTabPublication,function():void { _timerRefresh.stop(); }));
-				_conn.call("getClients", new Responder(onClients, function():void { _timerRefresh.stop(); } ));
-			}
-			
-			private function onTimerListeners(event:TimerEvent):void {
-				_conn.call("getListeners", new Responder(onTabListeners, function():void { _timerListeners.stop(); } ), _currentPublication);
+				_conn.call("getStatistics", new Responder(onStatistics,function():void { _timerRefresh.stop(); }), _currentPublication);
 			}
 			
 			// Ask Mona for listeners of the clicked publication
@@ -99,23 +91,14 @@
 				if (name) {
 					panelListeners.title = "Listeners of the publication " + name;
 					_currentPublication = name;
-					_timerListeners = new Timer(500);
-					_timerListeners.addEventListener(TimerEvent.TIMER, onTimerListeners);
-					_timerListeners.start();
 				}
 			}
 			
-			// Callback Functions
-			private function onTabPublication(tabResults:Object):void {
-				mapPublications = tabResults;
-			}
-			
-			private function onTabListeners(tabResults:Object):void {
-				mapListeners = tabResults;
-			}
-			
-			private function onClients(count:int):void {
-				clientsCount.text = "Clients count : " + count;
+			// Callback Function
+			private function onStatistics(result:Object):void {
+				mapPublications = result.publications;
+				mapListeners = result.listeners
+				clientsCount.text = "Clients count : " + result.clients;
 			}
 		]]>
 	</fx:Script>	
