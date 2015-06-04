@@ -5,6 +5,8 @@
 			   xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="300" minHeight="200" applicationComplete="init()" backgroundColor="0x303030">
 	<fx:Script>
 		<![CDATA[
+			import flash.events.AsyncErrorEvent;
+			import flash.events.IOErrorEvent;
 			import flash.media.H264VideoStreamSettings;
 			import mx.controls.Alert;
 			import mx.controls.Label;
@@ -46,21 +48,34 @@
 				_httpUrl = "http" + domainNPath[1];
 				_connection = new NetConnection();
 				_connection.addEventListener(NetStatusEvent.NET_STATUS, onStatus);
+				_connection.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatus);
+				_connection.addEventListener(IOErrorEvent.IO_ERROR, onStatus);
 				_connection.connect(_url);
 				_connection.client = this;
 			}
 			
-			private function onStatus(event:NetStatusEvent):void {
+			private function onStatus(evt:Event):void {
 				
-				switch(event.info.code) {
-					case "NetConnection.Connect.Success":
-						if (loaderInfo.parameters && loaderInfo.parameters.name) // ?name=...
-							createOrJoin(loaderInfo.parameters.name);
-						else
-							showLogin();
-						break;
-					default:
-						break;
+				if (evt is AsyncErrorEvent) 
+					Alert.show("Error : " + AsyncErrorEvent(evt));
+				else if (evt is IOErrorEvent)
+					Alert.show("Error : " + IOErrorEvent(evt));
+				else {
+					var event:NetStatusEvent = NetStatusEvent(evt);
+					switch(event.info.code) {
+						case "NetConnection.Connect.Success":
+							if (loaderInfo.parameters && loaderInfo.parameters.name) // ?name=...
+								createOrJoin(loaderInfo.parameters.name);
+							else
+								showLogin();
+							break;
+						case "NetStream.Connect.Success":
+						case "NetStream.Connect.Closed":
+							break;
+						default:
+							Alert.show("Unexpected event : " + event.info.code);
+							break;
+					}
 				}
 			}
 			

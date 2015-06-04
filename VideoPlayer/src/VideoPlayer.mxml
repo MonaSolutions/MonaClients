@@ -434,7 +434,7 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			<mx:HBox width="100%" id="config" alpha="0.8" visible="false">
 				<mx:TabNavigator  width="100%" creationPolicy="all" alpha="0.8" historyManagementEnabled="false">
 					<mx:VBox label="Parameters" alpha="0.8">
-						<mx:HBox>
+						<mx:HBox width="100%">
 							<mx:Label text="Url : "/>
 							<mx:TextInput id="address" width="100%" text="rtmfp://127.0.0.1/test123"/>
 							<mx:Button label="Connect" click="onConnect()"/>

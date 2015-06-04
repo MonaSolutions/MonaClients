@@ -84,6 +84,7 @@
 							_outstream.attachAudio(_mic);
 							_outstream.videoStreamSettings = _videoCodec;
 							_outstream.publish(_publishName);
+							onReliable(); // set reliability
 						} else { // NetGroup publishing
 							
 							var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
@@ -98,6 +99,7 @@
 							_outstream = new NetStream(_connection2, groupId);
 							_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
 							_outstream.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusOutstream);
+							onReliable(); // set reliability
 							
 							_netGroup = new NetGroup(_connection2,groupId); 
 							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
@@ -259,6 +261,14 @@
 			private function onKeyframes():void {
 				_cam.setKeyFrameInterval(keyframes.value);
 			}
+			
+			// Change audio/video reliability
+			private function onReliable():void {
+				if (_outstream) {
+					_outstream.videoReliable = cbVideoReliable.selected;
+					_outstream.audioReliable = cbAudioReliable.selected;
+				}
+			}
 		]]>
 	</fx:Script>
 	<mx:VBox width="800" height="600" horizontalAlign="center">
@@ -305,6 +315,7 @@
 						<mx:ComboBox id="comboVideoCodec" dataProvider="{listVideoCodec}" change="onVideoCodec()" editable="false"/>
 						<mx:Label text="Keyframes"/>
 						<s:NumericStepper id="keyframes" minimum="1" maximum="48" change="onKeyframes()" value="15"/>
+						<s:CheckBox selected="true" label="Reliable" change="onReliable()" id="cbVideoReliable"/>
 					</mx:HBox>
 				</mx:Panel>
 				
@@ -314,6 +325,9 @@
 						<mx:ComboBox id="comboAudioCodec" dataProvider="{listAudioCodec}" change="onAudioCodec()" editable="false"/>
 						<mx:Label text="Echo Cancellation"/>
 						<mx:ComboBox id="echoCancellation" dataProvider="{listEchoCancellation}" change="onEchoChanged();"/>
+					</mx:HBox>
+					<mx:HBox width="100%">
+						<s:CheckBox selected="true" label="Reliable" change="onReliable()" id="cbAudioReliable"/>
 					</mx:HBox>
 				</mx:Panel>
 			</mx:VBox>

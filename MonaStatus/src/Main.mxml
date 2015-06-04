@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:fx="http://ns.adobe.com/mxml/2009"
+               xmlns:mx="library://ns.adobe.com/flex/mx" applicationComplete="init()" minWidth="800" minHeight="600">
+	<fx:Style>
+		.headerCustomStyle {
+			fontWeight: 'bold';
+			textAlign: 'center';
+		} 
+	</fx:Style>
+	<fx:Script>
+		<![CDATA[
+			import flash.events.TimerEvent;
+			import flash.net.NetConnection;
+			import mx.utils.URLUtil;
+			import flash.net.Responder;
+			import flash.utils.Timer;
+			import mx.controls.Alert;
+			import mx.events.ListEvent;
+		
+			[Bindable] private var mapPublications:Object = null;
+			[Bindable] private var mapListeners:Object = null;
+			
+			private var _conn:NetConnection = null;
+			private var _timerRefresh:Timer = null;
+			private var _timerListeners:Timer = null;
+			
+			private var _currentPublication:String;
+			
+			private function init():void {
+				tabPublication.columns[0].setStyle("fontWeight", "bold");
+				tabPublication.columns[0].setStyle("textAlign", "center");
+				tabPublication.columns[1].setStyle("fontWeight", "bold");
+				tabPublication.columns[1].setStyle("textAlign", "center");
+				tabPublication.columns[2].setStyle("fontWeight", "bold");
+				tabPublication.columns[2].setStyle("textAlign", "center");
+				tabPublication.columns[3].width = 140;
+				
+				tabPublication.addEventListener(ListEvent.ITEM_CLICK, onClickPublication);
+				
+				// Initiate parameters
+				var url:String = this.loaderInfo.url;
+				var domainNPath:Array = url.match(/(:\/\/.+\/)/);
+				if (URLUtil.getProtocol(url) != "file") {
+					address.text = "rtmfp" + domainNPath[1];
+					connect();
+				}
+			}
+			
+			private function connect():void {
+				
+				if (_conn)
+					_conn.close();
+				_conn = new NetConnection();
+				_conn.addEventListener(NetStatusEvent.NET_STATUS, onStatus);
+				_conn.connect(address.text);
+				_conn.client = this;
+			}
+			
+			// Event functions
+			private function onStatus(event:NetStatusEvent):void {
+				switch(event.info.code) {
+					case "NetConnection.Connect.Success":
+						panelListeners.enabled = true;
+						panelGeneral.enabled = true;
+						panelPublications.enabled = true;
+						
+						_timerRefresh = new Timer(500);
+						_timerRefresh.addEventListener(TimerEvent.TIMER, onTimerRefresh);
+						_timerRefresh.start();
+						break;
+					case "NetConnection.Connect.Closed":
+						panelListeners.enabled = false;
+						panelGeneral.enabled = false;
+						panelPublications.enabled = false;
+						
+						if (_timerRefresh)
+							_timerRefresh.stop();
+						if (_timerListeners)
+							_timerListeners.stop();
+						break;
+					default:
+						Alert.show(event.info.code);
+				}
+			}
+			
+			// Refresh publications & clients lists
+			private function onTimerRefresh(event:TimerEvent):void {
+				_conn.call("getPublications", new Responder(onTabPublication,function():void { _timerRefresh.stop(); }));
+				_conn.call("getClients", new Responder(onClients, function():void { _timerRefresh.stop(); } ));
+			}
+			
+			private function onTimerListeners(event:TimerEvent):void {
+				_conn.call("getListeners", new Responder(onTabListeners, function():void { _timerListeners.stop(); } ), _currentPublication);
+			}
+			
+			// Ask Mona for listeners of the clicked publication
+			private function onClickPublication(event:ListEvent):void {
+				var name:String = event.itemRenderer.data["Name"];
+				if (name) {
+					panelListeners.title = "Listeners of the publication " + name;
+					_currentPublication = name;
+					_timerListeners = new Timer(500);
+					_timerListeners.addEventListener(TimerEvent.TIMER, onTimerListeners);
+					_timerListeners.start();
+				}
+			}
+			
+			// Callback Functions
+			private function onTabPublication(tabResults:Object):void {
+				mapPublications = tabResults;
+			}
+			
+			private function onTabListeners(tabResults:Object):void {
+				mapListeners = tabResults;
+			}
+			
+			private function onClients(count:int):void {
+				clientsCount.text = "Clients count : " + count;
+			}
+		]]>
+	</fx:Script>	
+	
+	<mx:VBox width="95%" height="100%" >
+		<mx:HBox width="100%">
+			<mx:Label text="MonaServer Address :"/>
+			<mx:TextInput width="100%" text="rtmfp://localhost/MonaStatus/" id="address"/>
+			<mx:Button id="btConnect" label="Connect" click="connect()"/>
+		</mx:HBox>
+		<mx:Panel title="General" width="100%" id="panelGeneral" enabled="false">
+			<mx:HBox width="100%">
+				<mx:Label id="clientsCount" text="Clients count : " />
+			</mx:HBox>
+		</mx:Panel>
+		<mx:Panel title="Publications" width="100%" height="100%" id="panelPublications" enabled="false">
+			<mx:DataGrid id="tabPublication" width="100%" height="100%" dataProvider="{mapPublications}" headerStyleName="headerCustomStyle" >
+				<mx:columns>
+					<mx:DataGridColumn dataField="Name" />
+					<mx:DataGridColumn dataField="Listeners" />
+					<mx:DataGridColumn dataField="Dropped Frames" />
+					<mx:DataGridColumn dataField="Byte Rate" />
+					<mx:DataGridColumn dataField="Lost" />
+					<mx:DataGridColumn dataField="Latency" />
+					<mx:DataGridColumn dataField="Congestion" />
+					<mx:DataGridColumn dataField="Last Send" />
+				</mx:columns>
+			</mx:DataGrid>
+		</mx:Panel>
+		<mx:Panel id="panelListeners" title="Click on a publication to get its subscribers" width="100%" enabled="false">
+			<mx:DataGrid id="tabListeners" width="100%" height="200" dataProvider="{mapListeners}" headerStyleName="headerCustomStyle" >
+				<mx:columns>
+					<mx:DataGridColumn dataField="Dropped Frames" />
+					<mx:DataGridColumn dataField="Byte Rate" />
+					<mx:DataGridColumn dataField="Lost" />
+					<mx:DataGridColumn dataField="Latency" />
+					<mx:DataGridColumn dataField="Congestion" />
+					<mx:DataGridColumn dataField="Last Send" />
+				</mx:columns>
+			</mx:DataGrid>
+		</mx:Panel>
+	</mx:VBox>
+</mx:Application>
