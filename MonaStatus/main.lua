@@ -26,7 +26,7 @@ function onConnection(client,response,...)
         pubLine.Name = pub.name
         pubLine.Listeners = #pub.listeners
         pubLine["Dropped Frames"] = pub.droppedFrames
-        pubLine["Byte Rate"] = "Video: " .. (math.floor(pub.videoQOS.byteRate)/1000) .. "KB/s\nAudio: " .. (math.floor(pub.audioQOS.byteRate)/1000) .. "KB/s"
+        pubLine["Byte Rate"] = "Video: " .. math.floor(pub.videoQOS.byteRate/125) .. "kb/s\nAudio: " .. math.floor(pub.audioQOS.byteRate/125) .. "kb/s"
         pubLine.Lost = string.format("%.3f",pub.videoQOS.lostRate*100) .. "%\n" .. string.format("%.3f",pub.audioQOS.lostRate*100) .. "%"
         pubLine.Latency = pub.videoQOS.latency .. "ms\n" .. pub.audioQOS.latency .. "ms"
         local currentTime = mona:time()
@@ -50,7 +50,7 @@ function onConnection(client,response,...)
         local listenerLine = {}
         
         listenerLine["Dropped Frames"] = l.droppedFrames and (l.droppedFrames + pub.droppedFrames) or pub.droppedFrames
-        listenerLine["Byte Rate"] = "Video: " .. (math.floor(l.videoQOS.byteRate)/1000) .. "KB/s\nAudio: " .. (math.floor(l.audioQOS.byteRate)/1000) .. "KB/s"
+        listenerLine["Byte Rate"] = "Video: " .. math.floor(l.videoQOS.byteRate/125) .. "kb/s\nAudio: " .. math.floor(l.audioQOS.byteRate/125) .. "kb/s"
         listenerLine.Lost = string.format("%.3f",l.videoQOS.lostRate*100) .. "%\n" .. string.format("%.3f",l.audioQOS.lostRate*100) .. "%"
         listenerLine.Latency = l.videoQOS.latency .. "ms\n" .. l.audioQOS.latency .. "ms"
         local currentTime = mona:time()
