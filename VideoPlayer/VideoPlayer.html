@@ -49,16 +49,16 @@
             var xiSwfUrlStr = "playerProductInstall.swf";
             var flashvars = {};
 			
-			// ---------------- Added to get dynamically the query parameters ----------------- 
+            // ---------------- Added to get dynamically the query parameters ----------------- 
             
             var queryIndex = window.location.href.indexOf("?");
             if (queryIndex > 0) {
-				var queryLength = window.location.href.length - queryIndex - 1;
-				
-				// Ignore everyting behind #
-				var hash = window.location.href.indexOf("#");
-				if (hash > 0)
-					queryLength -= (window.location.href.length - hash);
+              var queryLength = window.location.href.length - queryIndex - 1;
+              
+              // Ignore everyting behind #
+              var hash = window.location.href.indexOf("#");
+              if (hash > 0)
+                queryLength -= (window.location.href.length - hash);
 					
             	var query = window.location.href.substr(queryIndex+1,queryLength);
             	var tabParams = query.split("&");
@@ -73,7 +73,7 @@
             params.bgcolor = "#CCCCCC";
             params.allowscriptaccess = "always";
             params.allowfullscreen = "true";
-			//params.allowFullScreenInteractive = "true";
+            //params.allowFullScreenInteractive = "true";
             var attributes = {};
             attributes.id = "VideoPlayer";
             attributes.name = "VideoPlayer";

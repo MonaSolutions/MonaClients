@@ -27,8 +27,7 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			 * Options are :
 			 * 
 			 * - fit				    The player will be fitted to the window
-			 * - protocol=<rtmp|rtmfp>  Set the protocol to use. This option works only in combination with "url" option
-			 * - url=<url>              Set the url to connect to. This option works only in combination with "protocol" option
+			 * - url=<url>              Set the url to connect to (automatic connection)
 			 * - noconfig               Remove the configuration's panel
 			 * - notools                Remove all the tools. It means that you need "url" and "protocol" options to connect to a stream
 			 * - width=<integer>        Fixed width of the player
@@ -125,8 +124,9 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 					// Finally, automatically connect to the url in parameter
 					// url : host + path of the stream
 					// protocol : protocol of the stream (rtmp/rtmfp)
-					if (loaderInfo.parameters.url && loaderInfo.parameters.protocol) {
-						address.text = loaderInfo.parameters.protocol + "://" + loaderInfo.parameters.url;
+					if (loaderInfo.parameters.url) {
+						config.visible = false;						
+						address.text = loaderInfo.parameters.url;
 						if (loaderInfo.parameters.unbuffered)
 							address.text += "?unbuffered=true";
 						onConnect();
@@ -287,12 +287,12 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 						if (group.text == "") {
 							consoleRTMP.text += "Start playing stream " + _name + "\n";
 							_receiveNS = new NetStream(_netConnection);
+							onBufferSize();
 							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
+							_vid.attachNetStream(_receiveNS);
 							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
 							_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
 							_receiveNS.client = this;
-							_vid.attachNetStream(_receiveNS);
-							
 							_receiveNS.play(_name);
 						} else { // Netgroup listening
 							
@@ -306,6 +306,7 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 							
 							consoleRTMP.text += "GroupSpec created : " + groupId + "\n";
 							_receiveNS = new NetStream(_netConnection, groupId);
+							onBufferSize();
 							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
 							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
 							_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
@@ -425,13 +426,21 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 					statAudioLossRate.text = _receiveNS.info.audioLossRate.toString();
 				}
 			}
+			
+			// Called when buffer size value change
+			private function onBufferSize():void {
+				if (_receiveNS) {
+					_receiveNS.bufferTime = bufferSize.value / 1000;
+					_receiveNS.bufferTimeMax = maxBufferSize.value / 1000;
+				}
+			}
 		]]>
 	</fx:Script>
 	
 	<mx:VBox id="containerVideo" width="400" height="300">
 		<mx:UIComponent id="videoUI" width="100%" height="100%"/>
 		<mx:VBox id="containerTools" width="100%" verticalGap="0">
-			<mx:HBox width="100%" id="config" alpha="0.8" visible="false">
+			<mx:HBox width="100%" id="config" alpha="0.8" visible="true">
 				<mx:TabNavigator  width="100%" creationPolicy="all" alpha="0.8" historyManagementEnabled="false">
 					<mx:VBox label="Parameters" alpha="0.8">
 						<mx:HBox width="100%">
@@ -440,10 +449,15 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 							<mx:Button label="Connect" click="onConnect()"/>
 						</mx:HBox>
 						<mx:HBox width="100%">
-							<mx:Label text="NetGroup* : "/>
+							<mx:Label text="NetGroup* : " toolTip="*No NetGroup if empty" />
 							<mx:TextInput width="100%" id="group" text=""/>
+							<mx:Label text="Buffer : "/>
+							<mx:NumericStepper id="bufferSize" minimum="0" maximum="5000" value="0" change="onBufferSize()" />
+							<mx:Label text="ms"/>
+							<mx:Label text="Max Buffer : "/>
+							<mx:NumericStepper id="maxBufferSize" minimum="0" maximum="5000" value="500" change="onBufferSize()" />
+							<mx:Label text="ms"/>
 						</mx:HBox>
-						<mx:Label text="*: No NetGroup if empty" fontStyle="italic"/>
 						<mx:HBox width="100%">
 							<mx:Label text="Messages : "/>
 							<mx:TextInput width="100%" id="messages" editable="false"/>

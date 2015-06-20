@@ -36,7 +36,7 @@
 			
 			[Bindable] private var listCam:ArrayList = new ArrayList();
 			[Bindable] private var listVideoCodec:ArrayList = new ArrayList(["H264 Baseline","H264 Main","Sorenson"]);
-			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex"]);
+			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex","Off"]);
 			[Bindable] private var listEchoCancellation:ArrayList = new ArrayList(["Normal","Headphones","Off"]);
 			[Bindable] private var listResolution:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
 			
@@ -49,10 +49,9 @@
 				for (var index:String in Camera.names) {
 					listCam.addItem(Camera.names[index]);
 				}
-				if (listCam.length > 0) {
-					comboCam.selectedIndex = 0;
-					onCamChange();
-				}
+				listCam.addItem("Off");
+				comboCam.selectedIndex = 0;
+				onCamChange();
 				
 				// Select the first video codec & set video quality
 				comboVideoCodec.selectedIndex = 0;
@@ -199,41 +198,43 @@
 				}
 			}
 			
-			// Change the codec used for audio compression
-			private function onAudioCodec():void {
-				_mic.codec = comboAudioCodec.selectedLabel;
-			}
-			
 			// Change the microphone properties
 			private function onEchoChanged():void {
-				var options:MicrophoneEnhancedOptions = new MicrophoneEnhancedOptions();
-				_mic = Microphone.getMicrophone();// default microphone
-				if (Microphone.getEnhancedMicrophone()) {
-					switch(echoCancellation.selectedItem){
-						case "Normal":
-							_mic = Microphone.getEnhancedMicrophone();
-							options.mode = MicrophoneEnhancedMode.FULL_DUPLEX;
-							break;
-						case "Headphones":
-							_mic = Microphone.getEnhancedMicrophone();
-							options.mode = MicrophoneEnhancedMode.HEADSET;
-							break;
+				if (comboAudioCodec.selectedLabel == "Off") {
+					_mic = null;
+				} else {
+					var options:MicrophoneEnhancedOptions = new MicrophoneEnhancedOptions();
+					_mic = Microphone.getMicrophone();// default microphone
+					if (Microphone.getEnhancedMicrophone()) {
+						switch(echoCancellation.selectedItem){
+							case "Normal":
+								_mic = Microphone.getEnhancedMicrophone();
+								options.mode = MicrophoneEnhancedMode.FULL_DUPLEX;
+								break;
+							case "Headphones":
+								_mic = Microphone.getEnhancedMicrophone();
+								options.mode = MicrophoneEnhancedMode.HEADSET;
+								break;
+						}
 					}
+					if (!_mic) {
+						console.text += "No Microphone founded\n";
+						return;
+					}
+					_mic.enhancedOptions = options;
+					_mic.codec = comboAudioCodec.selectedLabel;
 				}
-				if (!_mic) {
-					console.text += "No Microphone founded\n";
-					return;
-				}
-				_mic.enhancedOptions = options;
 				if(_outstream)
 					_outstream.attachAudio(_mic);
-				onAudioCodec();
 			}
 			
 			// Change the camera used by player
 			private function onCamChange():void {
 				 var selection:String = String(comboCam.selectedIndex);
-				 _cam = Camera.getCamera(selection);
+				 if (selection == "Off")
+					_cam = null;
+				else
+					_cam = Camera.getCamera(selection);
 				 player.attachCamera(_cam);
 				if (_outstream)
 					_outstream.attachCamera(_cam);
@@ -246,6 +247,8 @@
 			
 			// Change the resolution of the video
 			private function onResolutionChange():void {
+				if (!_cam) return;
+				
 				var resolution:Array = comboResolution.selectedLabel.split("x");
 				var w:int = resolution[0];
 				var h:int = resolution[1];
@@ -254,11 +257,15 @@
 			
 			// Change the quality of the video
 			private function onQuality():void {
-				_cam.setQuality(bandwith.value*1000,quality.value);
+				if (!_cam) return;
+				
+				_cam.setQuality(bandwith.value*125,quality.value);
 			}
 			
 			// Change the video frames rate
 			private function onKeyframes():void {
+				if (!_cam) return;
+				
 				_cam.setKeyFrameInterval(keyframes.value);
 			}
 			
@@ -307,8 +314,8 @@
 						<s:NumericStepper id="quality" minimum="0" maximum="100" change="onQuality()" toolTip="0 means variable"/>
 						<mx:Label text="%"/>
 						<mx:ComboBox id="comboResolution" dataProvider="{listResolution}" change="onResolutionChange()" selectedItem="640x480" editable="false"/>
-						<s:NumericStepper id="bandwith" minimum="0" maximum="5000" change="onQuality()" value="16" toolTip="0 means variable"/>
-						<mx:Label text="KBps"/>
+						<s:NumericStepper id="bandwith" minimum="0" maximum="20480" stepSize="128" change="onQuality()" value="128" toolTip="0 means variable (it's Kilobits, not Kilobytes!)"/>
+						<mx:Label text="Kbps"/>
 					</mx:HBox>
 					<mx:HBox width="100%">						
 						<mx:Label text="Codec"/>
@@ -322,7 +329,7 @@
 				<mx:Panel title="Audio" width="100%">
 					<mx:HBox width="100%">
 						<mx:Label text="Codec"/>
-						<mx:ComboBox id="comboAudioCodec" dataProvider="{listAudioCodec}" change="onAudioCodec()" editable="false"/>
+						<mx:ComboBox id="comboAudioCodec" dataProvider="{listAudioCodec}" change="onEchoChanged()" editable="false"/>
 						<mx:Label text="Echo Cancellation"/>
 						<mx:ComboBox id="echoCancellation" dataProvider="{listEchoCancellation}" change="onEchoChanged();"/>
 					</mx:HBox>

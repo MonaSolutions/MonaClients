@@ -8,7 +8,7 @@ function getCongestion(qos)
 	congestion = congestion + (qos.latency-qos.lastLatency) / qos.lastLatency
   end
   qos.lastLatency = qos.latency
-  if congestion > 1 then return 1 end
+  if congestion > 1 then return 1 elseif congestion < 0 then congestion = 0 end
   return congestion
 end
 
