@@ -120,7 +120,7 @@
 					<mx:DataGridColumn dataField="Name" />
 					<mx:DataGridColumn dataField="Listeners" />
 					<mx:DataGridColumn dataField="Dropped Frames" />
-					<mx:DataGridColumn dataField="Byte Rate" />
+					<mx:DataGridColumn dataField="Bit Rate" />
 					<mx:DataGridColumn dataField="Lost" />
 					<mx:DataGridColumn dataField="Latency" />
 					<mx:DataGridColumn dataField="Congestion" />
@@ -132,7 +132,7 @@
 			<mx:DataGrid id="tabListeners" width="100%" height="200" dataProvider="{mapListeners}" headerStyleName="headerCustomStyle" >
 				<mx:columns>
 					<mx:DataGridColumn dataField="Dropped Frames" />
-					<mx:DataGridColumn dataField="Byte Rate" />
+					<mx:DataGridColumn dataField="Bit Rate" />
 					<mx:DataGridColumn dataField="Lost" />
 					<mx:DataGridColumn dataField="Latency" />
 					<mx:DataGridColumn dataField="Congestion" />

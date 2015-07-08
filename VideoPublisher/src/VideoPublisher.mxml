@@ -37,13 +37,16 @@
 			[Bindable] private var listCam:ArrayList = new ArrayList();
 			[Bindable] private var listVideoCodec:ArrayList = new ArrayList(["H264 Baseline","H264 Main","Sorenson"]);
 			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex","Off"]);
-			[Bindable] private var listEchoCancellation:ArrayList = new ArrayList(["Normal","Headphones","Off"]);
+			[Bindable] private var listEchoCancellation:ArrayList = new ArrayList(["Normal","Headphones","Usb Device", "Off","Basic Micro"]);
 			[Bindable] private var listResolution:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
 			
 			// init camera
 			private function init():void {
 				// Init microphone
+				comboAudioCodec.selectedIndex = 1;
 				onEchoChanged();
+				onSilenceChange();
+				onNoiseChange();
 				
 				// Init camera parameters and select the first one
 				for (var index:String in Camera.names) {
@@ -171,12 +174,6 @@
 			}
 			
 			// Activate/Disactivate echo
-			private function onMicroChange():void {
-				console.text += (cbMicro.selected)? "Echo tolerant\n" : "No echo\n";
-				_mic.setSilenceLevel((cbMicro.selected)? 10 : 100);
-			}
-			
-			// Activate/Disactivate echo
 			private function onDumpChange():void {
 				_dump = cbDump.selected;
 			}
@@ -198,34 +195,61 @@
 				}
 			}
 			
+			// Change sound detection level
+			private function onSilenceChange():void {
+				_mic.setSilenceLevel(silenceLevel.value);
+			}
+			
+			// Change noise suppression
+			private function onNoiseChange():void {
+				_mic.noiseSuppressionLevel = -noiseSuppression.value;
+			}
+			
 			// Change the microphone properties
 			private function onEchoChanged():void {
 				if (comboAudioCodec.selectedLabel == "Off") {
 					_mic = null;
 				} else {
-					var options:MicrophoneEnhancedOptions = new MicrophoneEnhancedOptions();
+					
 					_mic = Microphone.getMicrophone();// default microphone
-					if (Microphone.getEnhancedMicrophone()) {
+					if (echoCancellation.selectedItem=="Basic Micro") {
+						_mic.setUseEchoSuppression(cbEchoSuppression.selected);
+						console.text += "Basic micro : "+_mic+"\n";
+					} else if (Microphone.getEnhancedMicrophone()) {
+						var options:MicrophoneEnhancedOptions = new MicrophoneEnhancedOptions();
+						_mic = Microphone.getEnhancedMicrophone();
 						switch(echoCancellation.selectedItem){
 							case "Normal":
-								_mic = Microphone.getEnhancedMicrophone();
 								options.mode = MicrophoneEnhancedMode.FULL_DUPLEX;
 								break;
 							case "Headphones":
-								_mic = Microphone.getEnhancedMicrophone();
 								options.mode = MicrophoneEnhancedMode.HEADSET;
 								break;
+							case "Usb Device":
+								options.mode = MicrophoneEnhancedMode.HALF_DUPLEX;
+								break;
+							case "Off":
+								options.mode = MicrophoneEnhancedMode.OFF;
+								break;
 						}
-					}
+						options.echoPath = (cbEchoPath.selected)? 256 : 128;
+						_mic.enhancedOptions = options;
+					} else
+						console.text += "Enhanced Microphone options are not available with your Microphone\n";
 					if (!_mic) {
 						console.text += "No Microphone founded\n";
 						return;
 					}
-					_mic.enhancedOptions = options;
 					_mic.codec = comboAudioCodec.selectedLabel;
 				}
 				if(_outstream)
 					_outstream.attachAudio(_mic);
+					
+				if (_mic)
+					if (_mic.enhancedOptions)
+						console.text += "Audio parameters changed (codec : " + _mic.codec + ", mode : " +_mic.enhancedOptions.mode + ", echoPath : " + _mic.enhancedOptions.echoPath + ")\n";
+					else
+						console.text += "Audio parameters changed (codec : " + _mic.codec + ", echo suppression : " + _mic.useEchoSuppression + ")\n";
 			}
 			
 			// Change the camera used by player
@@ -284,7 +308,6 @@
 				<mx:HBox width="100%">
 					<mx:Label text="Publisher" fontWeight="bold"/>
 					<mx:HRule width="100%" visible="false"/>
-					<s:CheckBox selected="true" label="Echo" change="onMicroChange()" id="cbMicro"/>
 					<s:CheckBox selected="false" label="Dump*" change="onDumpChange()" id="cbDump" toolTip="Doesn't work with NetGroups" />
 				</mx:HBox>
 				<mx:HBox width="100%">
@@ -314,7 +337,7 @@
 						<s:NumericStepper id="quality" minimum="0" maximum="100" change="onQuality()" toolTip="0 means variable"/>
 						<mx:Label text="%"/>
 						<mx:ComboBox id="comboResolution" dataProvider="{listResolution}" change="onResolutionChange()" selectedItem="640x480" editable="false"/>
-						<s:NumericStepper id="bandwith" minimum="0" maximum="20480" stepSize="128" change="onQuality()" value="128" toolTip="0 means variable (it's Kilobits, not Kilobytes!)"/>
+						<s:NumericStepper id="bandwith" minimum="0" maximum="20480" stepSize="1" change="onQuality()" value="128" toolTip="0 means variable (it's Kilobits, not Kilobytes!)"/>
 						<mx:Label text="Kbps"/>
 					</mx:HBox>
 					<mx:HBox width="100%">						
@@ -334,7 +357,15 @@
 						<mx:ComboBox id="echoCancellation" dataProvider="{listEchoCancellation}" change="onEchoChanged();"/>
 					</mx:HBox>
 					<mx:HBox width="100%">
+						<mx:Label text="Silence level*" toolTip="Sets the minimum input level that should be considered sound" />
+						<s:NumericStepper id="silenceLevel" minimum="0" maximum="100" change="onSilenceChange()" value="10"/>
+						<mx:Label text="Noise Suppression*" toolTip="Only applied to Speex compression" />
+						<s:NumericStepper id="noiseSuppression" minimum="0" maximum="100" change="onNoiseChange()" value="30"/>
 						<s:CheckBox selected="true" label="Reliable" change="onReliable()" id="cbAudioReliable"/>
+					</mx:HBox>
+					<mx:HBox width="100%">
+						<s:CheckBox selected="false" label="EchoPath 256ms*" change="onEchoChanged()" id="cbEchoPath" toolTip="enhanced option, change echo path length (default is 128ms)" />
+						<s:CheckBox selected="false" label="Echo Suppression*" change="onEchoChanged()" id="cbEchoSuppression" toolTip="works only with Basic Microphone" />
 					</mx:HBox>
 				</mx:Panel>
 			</mx:VBox>
