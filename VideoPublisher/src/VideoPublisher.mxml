@@ -53,6 +53,7 @@
 					listCam.addItem(Camera.names[index]);
 				}
 				listCam.addItem("Off");
+				
 				comboCam.selectedIndex = 0;
 				onCamChange();
 				
@@ -197,12 +198,14 @@
 			
 			// Change sound detection level
 			private function onSilenceChange():void {
-				_mic.setSilenceLevel(silenceLevel.value);
+				if (_mic)
+					_mic.setSilenceLevel(silenceLevel.value);
 			}
 			
 			// Change noise suppression
 			private function onNoiseChange():void {
-				_mic.noiseSuppressionLevel = -noiseSuppression.value;
+				if (_mic)
+					_mic.noiseSuppressionLevel = -noiseSuppression.value;
 			}
 			
 			// Change the microphone properties
