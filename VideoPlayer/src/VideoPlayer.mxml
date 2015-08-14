@@ -306,12 +306,11 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 							
 							consoleRTMP.text += "GroupSpec created : " + groupId + "\n";
 							_receiveNS = new NetStream(_netConnection, groupId);
-							onBufferSize();
 							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
 							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
 							_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
 							//_receiveNS.inBufferSeek = false;
-							_receiveNS.client=this;
+							_receiveNS.client = this;
 							
 							_netGroup = new NetGroup(_netConnection,groupId); 
 							//_netGroup.receiveMode = NetGroupReceiveMode.NEAREST;
@@ -331,6 +330,7 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 						if (group.text != "") {
 							_vid.attachNetStream(_receiveNS);
 							_receiveNS.play(_name);
+							onBufferSize();
 						}
 						break;
 				}
