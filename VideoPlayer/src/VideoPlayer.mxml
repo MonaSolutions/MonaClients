@@ -285,7 +285,7 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 				switch (event.info.code) {
 					case "NetConnection.Connect.Success":
 						// Classic listening
-						if (group.text == "") {
+						if (group.text == "" && groupspecifier.text == "") {
 							consoleRTMP.text += "Start playing stream " + _name + "\n";
 							_receiveNS = new NetStream(_netConnection);
 							onBufferSize();
@@ -297,13 +297,16 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 							_receiveNS.play(_name);
 						} else { // Netgroup listening
 							
-							var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
-							groupSpec.peerToPeerDisabled = false; 
-							groupSpec.serverChannelEnabled=true; 
-							groupSpec.ipMulticastMemberUpdatesEnabled=true; 
-							groupSpec.multicastEnabled=true; 
-							groupSpec.postingEnabled=true;
-							var groupId:String = groupSpec.groupspecWithAuthorizations(); 
+							var groupId:String = groupspecifier.text;
+							if (groupspecifier.text == "") {
+								var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
+								groupSpec.peerToPeerDisabled = false; 
+								groupSpec.serverChannelEnabled=true; 
+								groupSpec.ipMulticastMemberUpdatesEnabled=true; 
+								groupSpec.multicastEnabled=true; 
+								groupSpec.postingEnabled=true;
+								groupId = groupSpec.groupspecWithAuthorizations();
+							}
 							
 							consoleRTMP.text += "GroupSpec created : " + groupId + "\n";
 							_receiveNS = new NetStream(_netConnection, groupId);
@@ -328,7 +331,7 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 						
 						break;
 					case "NetStream.Connect.Success": // Group connection
-						if (group.text != "") {
+						if (group.text != "" || groupspecifier.text != "") {
 							_vid.attachNetStream(_receiveNS);
 							_receiveNS.play(_name);
 							onBufferSize();
@@ -450,8 +453,10 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 							<mx:Button label="Connect" click="onConnect()"/>
 						</mx:HBox>
 						<mx:HBox width="100%">
-							<mx:Label text="NetGroup* : " toolTip="*No NetGroup if empty" />
+							<mx:Label text="NetGroup name* : " toolTip="*No NetGroup if empty (group name used to find group specifier id)" />
 							<mx:TextInput width="100%" id="group" text=""/>
+							<mx:Label text="NetGroup id* : " toolTip="*No NetGroup if empty (direct group specifier id)" />
+							<mx:TextInput width="100%" id="groupspecifier" text=""/>
 							<mx:Label text="Buffer : "/>
 							<mx:NumericStepper id="bufferSize" minimum="0" maximum="5000" value="0" change="onBufferSize()" />
 							<mx:Label text="ms"/>
