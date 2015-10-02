@@ -16,8 +16,8 @@ You should have received a copy of the GNU General Public License
 along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 -->
 <s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
-				xmlns:s="library://ns.adobe.com/flex/spark" 
-				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="800" minHeight="600" applicationComplete="init();">
+			   xmlns:s="library://ns.adobe.com/flex/spark"
+				xmlns:mx="library://ns.adobe.com/flex/mx"  minWidth="800" minHeight="600" applicationComplete="init();">
 				
 	<fx:Script>
 		<![CDATA[
@@ -28,6 +28,8 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			 * 
 			 * - fit				    The player will be fitted to the window
 			 * - url=<url>              Set the url to connect to (automatic connection)
+			 * - groupname				Set automatically the group name to this value
+			 * - groupid				Set automatically the group id specifier to this value
 			 * - noconfig               Remove the configuration's panel
 			 * - notools                Remove all the tools. It means that you need "url" and "protocol" options to connect to a stream
 			 * - width=<integer>        Fixed width of the player
@@ -46,6 +48,8 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			import flash.geom.Matrix;
 			import flash.utils.Timer;
 			import mx.utils.URLUtil;
+			import flash.events.AsyncErrorEvent;
+			import flash.events.IOErrorEvent;
 			
 			private var _filter:ColorMatrixFilter; // Color filter for button tools
 			
@@ -83,6 +87,8 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 				_netConnection = new NetConnection();
 				_netConnection.client = this;
 				_netConnection.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetConnection);
+				_netConnection.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
+				_netConnection.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
 				
 				if (loaderInfo.parameters) {
 					// No configuration panel?
@@ -130,6 +136,10 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 						address.text = loaderInfo.parameters.url;
 						if (loaderInfo.parameters.unbuffered)
 							address.text += "?unbuffered=true";
+						if (loaderInfo.parameters.groupname)
+							group.text = loaderInfo.parameters.groupname;
+						if (loaderInfo.parameters.groupid)
+							groupspecifier.text = loaderInfo.parameters.groupid;
 						onConnect();
 					} else if (loaderInfo.parameters.unbuffered)
 						address.text += "?unbuffered=true";
@@ -142,7 +152,9 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 				resetVideoLayout(_width, _height);
 				
 				// Add close window handler to close connection
-				ExternalInterface.addCallback("sendToActionScript", closeWindow);
+				try {
+					ExternalInterface.addCallback("sendToActionScript", closeWindow);
+				} catch(e:Error) {}
 			}
 			
 			/**
@@ -279,74 +291,83 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			}
 			 
 			// Manage NetConnection events
-			private function onStatusNetConnection(event:NetStatusEvent):void {
+			private function onStatusNetConnection(evt:Event):void {
 				
-				consoleRTMP.text += 'NetConnection event : ' + event.info.code + "\n";
-				switch (event.info.code) {
-					case "NetConnection.Connect.Success":
-						// Classic listening
-						if (group.text == "" && groupspecifier.text == "") {
-							consoleRTMP.text += "Start playing stream " + _name + "\n";
-							_receiveNS = new NetStream(_netConnection);
-							onBufferSize();
-							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
-							_vid.attachNetStream(_receiveNS);
-							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
-							_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
-							_receiveNS.client = this;
-							_receiveNS.play(_name);
-						} else { // Netgroup listening
-							
-							var groupId:String = groupspecifier.text;
-							if (groupspecifier.text == "") {
-								var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
-								groupSpec.peerToPeerDisabled = false; 
-								groupSpec.serverChannelEnabled=true; 
-								groupSpec.ipMulticastMemberUpdatesEnabled=true; 
-								groupSpec.multicastEnabled=true; 
-								groupSpec.postingEnabled=true;
-								groupId = groupSpec.groupspecWithAuthorizations();
+				if (evt is IOErrorEvent)
+					 consoleRTMP.text +=  "NetConnection error : " + IOErrorEvent(evt).text + "\n"; 
+				else if (evt is AsyncErrorEvent)
+					 consoleRTMP.text +=  "NetConnection error : " + AsyncErrorEvent(evt).text + "\n"; 
+				else {
+					var event:NetStatusEvent = NetStatusEvent(evt);
+					
+					consoleRTMP.text += 'NetConnection event : ' + event.info.code + "\n";
+					
+					switch (event.info.code) {
+						case "NetConnection.Connect.Success":
+							// Classic listening
+							if (group.text == "" && groupspecifier.text == "") {
+								consoleRTMP.text += "Start playing stream " + _name + "\n";
+								_receiveNS = new NetStream(_netConnection);
+								onBufferSize();
+								_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
+								_vid.attachNetStream(_receiveNS);
+								_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
+								_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
+								_receiveNS.client = this;
+								_receiveNS.play(_name);
+							} else { // Netgroup listening
+								
+								var groupId:String = groupspecifier.text;
+								if (groupspecifier.text == "") {
+									var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
+									groupSpec.peerToPeerDisabled = false; 
+									groupSpec.serverChannelEnabled=true; 
+									groupSpec.ipMulticastMemberUpdatesEnabled=true; 
+									groupSpec.multicastEnabled=true; 
+									groupSpec.postingEnabled=true;
+									groupId = groupSpec.groupspecWithAuthorizations();
+								}
+								
+								consoleRTMP.text += "GroupSpec created : " + groupId + "\n";
+								_receiveNS = new NetStream(_netConnection, groupId);
+								_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
+								_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
+								_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
+								//_receiveNS.inBufferSeek = false;
+								_receiveNS.client = this;
+								
+								_netGroup = new NetGroup(_netConnection,groupId); 
+								//_netGroup.receiveMode = NetGroupReceiveMode.NEAREST;
+								_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
+									consoleRTMP.text +=  "NetGroup event : " + evt.info.code + "\n";
+								});
+							}
+							// Faster video stream (but unreliable)
+							if (loaderInfo.parameters && loaderInfo.parameters.unreliable) {
+								consoleRTMP.text +=  "Unreliable stream requested\n";
+								_receiveNS.videoReliable = false;
+								_receiveNS.audioReliable = false;
 							}
 							
-							consoleRTMP.text += "GroupSpec created : " + groupId + "\n";
-							_receiveNS = new NetStream(_netConnection, groupId);
-							_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
-							_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
-							_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
-							//_receiveNS.inBufferSeek = false;
-							_receiveNS.client = this;
-							
-							_netGroup = new NetGroup(_netConnection,groupId); 
-							//_netGroup.receiveMode = NetGroupReceiveMode.NEAREST;
-							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
-								consoleRTMP.text +=  "NetGroup event : " + evt.info.code + "\n";
-							});
-						}
-						// Faster video stream (but unreliable)
-						if (loaderInfo.parameters && loaderInfo.parameters.unreliable) {
-							consoleRTMP.text +=  "Unreliable stream requested\n";
-							_receiveNS.videoReliable = false;
-							_receiveNS.audioReliable = false;
-						}
-						
-						break;
-					case "NetStream.Connect.Success": // Group connection
-						if (group.text != "" || groupspecifier.text != "") {
-							_vid.attachNetStream(_receiveNS);
-							_receiveNS.play(_name);
-							onBufferSize();
-						}
-						break;
+							break;
+						case "NetStream.Connect.Success": // Group connection
+							if (group.text != "" || groupspecifier.text != "") {
+								_vid.attachNetStream(_receiveNS);
+								_receiveNS.play(_name);
+								onBufferSize();
+							}
+							break;
+					}
 				}
 			}
 			
 			// Connect to the RTMP/RTMFP link
 			private function onConnect():void {
 				
-				consoleRTMP.text += "Connection to '" + address.text + "'\n";
 				var lastSlash:int = address.text.lastIndexOf("/");
 				_domainNPath=address.text.substr(0,lastSlash);
 				_name=address.text.substr(lastSlash+1);
+				consoleRTMP.text += "Connection to '" + _domainNPath + "' (stream name : " + _name+")\n";				
 				if (_netConnection.connected)
 					_netConnection.close();
 
