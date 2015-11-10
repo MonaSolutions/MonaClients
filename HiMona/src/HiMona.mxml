@@ -1,0 +1,349 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+				xmlns:local="*" 
+				xmlns:s="library://ns.adobe.com/flex/spark" 
+				xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="300" minHeight="200" applicationComplete="init()" backgroundColor="0x303030">
+	<fx:Script>
+		<![CDATA[
+			import flash.events.Event;
+			import mx.events.CloseEvent;
+			import flash.events.FullScreenEvent;
+			import flash.events.KeyboardEvent;
+			import flash.globalization.DateTimeFormatter;
+			import flash.globalization.LocaleID;
+			import flash.events.AsyncErrorEvent;
+			import flash.events.IOErrorEvent;
+			import flash.media.H264VideoStreamSettings;
+			import mx.collections.ArrayList;
+			import mx.controls.Alert;
+			import mx.controls.Label;
+			import mx.managers.PopUpManager;
+			import mx.utils.URLUtil;
+			
+			private var _dateFormatter:DateTimeFormatter = new DateTimeFormatter(LocaleID.DEFAULT);
+			
+			private var _name:String; // Name of the meeting
+			private var _httpUrl:String; // Url of the app
+			
+			private var _url:String;
+			private var _connection:NetConnection = null;
+			private var _outgoingStream:NetStream = null;
+			
+			private var _loginWindow:LoginWindow=null;
+			
+			private var _mic:Microphone=null;
+			private var _cam:Camera=null;
+			
+			private var _buttonBar:ButtonBar = null;
+			
+			[Bindable] private var listSizes:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
+			
+			private function init():void {
+				
+				// Generate dynamic url
+				var url:String = loaderInfo.url;
+				var domainNPath:Array = url.match(/(:\/\/.+)\//);
+				if (URLUtil.getProtocol(url) == "file") {
+					Alert.show("Error : MonaVideo can't be loaded locally!");
+				}
+				
+				// Connect to Mona
+				_url = "rtmfp" + domainNPath[1];
+				if (loaderInfo.parameters && loaderInfo.parameters.port) { // Replace rtmfp port with the one specified in http query url
+					_url = _url.replace(/:\d+\//, ":"+loaderInfo.parameters.port+"/");
+				}
+				debug("Connection to "+_url+"...");
+				_httpUrl = "http" + domainNPath[1];
+				_connection = new NetConnection();
+				_connection.addEventListener(NetStatusEvent.NET_STATUS, onStatus);
+				_connection.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatus);
+				_connection.addEventListener(IOErrorEvent.IO_ERROR, onStatus);
+				_connection.connect(_url);
+				_connection.client = this;
+				
+				// FullScreen Escape event
+				stage.addEventListener(FullScreenEvent.FULL_SCREEN, onEscapeFullScreen);
+				
+				stage.addEventListener(Event.RESIZE, onStageResized); 
+				
+				_buttonBar = new ButtonBar((screen.width - panelDebug.width) / 2, screen.height - panelDebug.height - 90, panelDebug.width, 80);
+				_buttonBar.addEventListener("record", onRecord);
+				_buttonBar.addEventListener("fullscreen", onFullScreen);
+				stage.addChild(_buttonBar);
+				
+				onStageResized(null);
+			}
+			
+			private function onStageResized(e:Event):void {
+				// Set the local video in the top rigth corner
+				localVideoDisplay.x = screen.width - 90;
+				remoteVideoDisplay.refreshLayout();
+				
+				_buttonBar.refreshLayout((screen.width - panelDebug.width) / 2, screen.height - panelDebug.height - 90);
+				panelDebug.x = (screen.width - panelDebug.width) / 2;
+				panelDebug.y = screen.height - panelDebug.height -10;
+			}
+			
+			private function onStatus(evt:Event):void {
+				
+				if (evt is AsyncErrorEvent) 
+					Alert.show("Error : " + AsyncErrorEvent(evt));
+				else if (evt is IOErrorEvent)
+					Alert.show("Error : " + IOErrorEvent(evt));
+				else {
+					var event:NetStatusEvent = NetStatusEvent(evt);
+					switch(event.info.code) {
+						case "NetConnection.Connect.Success":
+							if (loaderInfo.parameters && loaderInfo.parameters.name) // ?name=...
+								createOrJoin(loaderInfo.parameters.name);
+							else
+								showLogin(null);
+							break;
+						case "NetStream.Connect.Success":
+						case "NetStream.Connect.Closed":
+							break;
+						default:
+							Alert.show("Unexpected event : " + event.info.code);
+							break;
+					}
+				}
+			}
+			
+			private function showLogin(message:String):void {							
+				if (_loginWindow) {
+					PopUpManager.removePopUp(_loginWindow);
+					_loginWindow = null;
+					if (_outgoingStream)
+						_outgoingStream.close();
+					remoteVideoDisplay.stop();
+					panelShare.visible=false;
+				}
+				
+				_loginWindow = LoginWindow(PopUpManager.createPopUp(this, LoginWindow, true));
+				_loginWindow.closeButton.visible = false;
+				if (message)
+					_loginWindow.message.text = message;
+				
+				_loginWindow["registerButton"].addEventListener("click", function(e:Event):void { createOrJoin(_loginWindow.userInput.text); } );
+				
+				_loginWindow.userInput.text = "MeetingName";
+				
+				PopUpManager.centerPopUp(_loginWindow);
+			}
+			
+			private function createOrJoin(meetingName:String):void {
+				
+				_name = meetingName;
+				_connection.call("sendName", new Responder(onNameCorrect, null), _name);
+			}
+			
+			private function onNameCorrect(session:Object):void {
+				
+				PopUpManager.removePopUp(_loginWindow);
+				
+				_cam = Camera.getCamera();
+				onSizeChanged();
+				localVideoDisplay.attachCamera(_cam);
+				localVideoDisplay.addEventListener(MouseEvent.MOUSE_DOWN, function(event:MouseEvent):void {
+					localVideoDisplay.startDrag(); // on click the camera can is dragable
+				});
+				localVideoDisplay.addEventListener(MouseEvent.MOUSE_UP, function(event:MouseEvent):void {
+					localVideoDisplay.stopDrag(); // when click is finished the camera is fixed
+				});
+				
+				_mic = Microphone.getMicrophone();
+				
+				// If we are the caller : connect to called
+				if (session)
+					connect2Peer(session.id);
+				else {
+					panelShare.visible=true;
+					panelShare.y = (screen.height-panelShare.height)/2;
+					shareLink.text=_httpUrl+"/?name="+_name;
+					shareLink.maxWidth = stage.width - 20;
+				}
+			}
+			
+			private function debug(line:String):void {
+				var now:Date = new Date();
+				var newLine:String = _dateFormatter.format(now) + "  " + line;
+				debugText.text += newLine + "\n";
+				debugText.verticalScrollPosition = debugText.maxVerticalScrollPosition;
+				trace(newLine);
+			}	
+			
+			// FullScreen button
+			private function onFullScreen(e:Event):void {
+				if (stage.displayState == StageDisplayState.FULL_SCREEN_INTERACTIVE) 
+					stage.displayState = StageDisplayState.NORMAL; // escape from fullscreen mode
+				else
+					stage.displayState = StageDisplayState.FULL_SCREEN_INTERACTIVE;
+			}
+			
+			// Called when ESCAPE is pressed and FullScreen is ON
+			private function onEscapeFullScreen(event:FullScreenEvent):void {
+				debugText.text += "FullScreen " + ((event.fullScreen)? "ON" : "OFF") + "\n";
+				onStageResized(null);
+			}
+			
+			private function onRecord(e:Event):void {
+				if (!remoteVideoDisplay.recording) {
+					chatBox.text += "You have asked to record your peer's stream, please wait for his answer...\n";
+					_connection.call("sendCommand", null, "askRecording");
+				} else {
+					remoteVideoDisplay.saveToFile();
+					_buttonBar.stopRecording();
+				}
+			}
+			
+			private function sendMessage(event:Event):void {
+				// Accept only <ENTER> key
+				if (event is KeyboardEvent) {
+					var eventKey:KeyboardEvent = event as KeyboardEvent;
+					if (eventKey.keyCode != 13)
+						return;
+				}
+				
+				if (!_connection)
+					return;
+				
+				if (sChat.text != "")
+					_connection.call("sendCommand", new Responder(onMessageReceived, onMessageError), sChat.text, "onMessage");
+			}
+			
+			private function onSizeChanged():void {
+				if (!_cam) return;
+				
+				var resolution:Array = comboSizes.selectedLabel.split("x");
+				var w:int = resolution[0];
+				var h:int = resolution[1];
+				_cam.setMode(w, h, 15);
+			}
+			
+			private function onQuality():void {
+				if (!_cam)
+					return;
+				
+				_cam.setQuality(bandwith.value*125,quality.value);
+			}
+			
+			/*************************************
+			 * Functions called by Mona
+			 * ***********************************/
+			
+			// Start connection to peer
+			public function connect2Peer(id:String):void {
+				panelShare.visible=false;
+				_outgoingStream = new NetStream(_connection);
+				var codec:H264VideoStreamSettings = new H264VideoStreamSettings();
+				codec.setProfileLevel(H264Profile.BASELINE, "3");
+				_outgoingStream.videoStreamSettings = codec;
+				_outgoingStream.publish(_connection.nearID);
+				
+				// Attach camera & micro
+				_outgoingStream.attachAudio(_mic);
+				_outgoingStream.attachCamera(_cam);
+				
+				remoteVideoDisplay.play(_connection,id);
+			}
+			
+			public function onChange(action:String):void {
+				switch(action) {
+				case "disconnect":
+					showLogin("Your meeter is gone, you can create a new room");
+					break;
+				case "roomfull":
+					showLogin("This room is already full, please choose another name");
+					break;
+				}
+			}
+			
+			// Message from you
+			public function onMessageReceived(message:String):void {
+				chatBox.text += "You> " + message + "\n";
+				sChat.text = "";
+			}
+			
+			// Error in message sended
+			public function onMessageError(error:String):void {
+				sChat.text = "";
+			}
+			
+			// Message from him
+			public function onMessage(message:String):void {
+				chatBox.text += "Him> " + message + "\n";
+			}
+			
+			// The other peer asks for recording the stream
+			public function askRecording():void {
+				Alert.show("The other peer is asking for recording your stream, do you agree?", "Recording", 0x03, null, function (event:CloseEvent):void {
+					if (event.detail == Alert.YES)
+						_connection.call("sendCommand", null, "onRecordingAnswer", true);
+					else
+						_connection.call("sendCommand", null, "onRecordingAnswer", false);
+				});
+			}
+			
+			// Answer for recording asked
+			public function onRecordingAnswer(isOK:Boolean):void {
+				if (isOK) {
+					chatBox.text += "Your peer has accepted the recording request!\n";
+					remoteVideoDisplay.startRecording(); 
+					_buttonBar.startRecording();
+				} else
+					chatBox.text += "Your peer has denied the recording request, retry asking gently :)\n";
+			}
+			
+			public function close():void {}
+		]]>
+	</fx:Script>
+	
+	
+	
+	<s:VGroup width="100%" height="100%">
+		<mx:Canvas id="canva" width="100%" height="100%">
+			<local:VideoRenderer id="remoteVideoDisplay" x="0" y="0" width="100%" height="100%" log="debug(event.message)"/>
+			<mx:VideoDisplay id="localVideoDisplay" width="80" height="60" x="10" y="10" />
+			<mx:VBox id="panelShare" width="100%" horizontalAlign="center" verticalAlign="middle" visible="false">
+				<mx:Label color="0xFFFFFF" fontSize="24" alpha="0.5" text="Copy this link and share it with someone :" truncateToFit="false"/>
+				<mx:HBox backgroundColor="0x0000BB" alpha="0.5" height="60">
+					<mx:Label color="0xFFFFFF" fontSize="24" alpha="0.5" id="shareLink" text="url to share" selectable="true" truncateToFit="true" width="80%"/>
+				</mx:HBox>
+			</mx:VBox>
+			
+			<mx:TabNavigator id="panelDebug" width="600" height="140" creationPolicy="all" alpha="0.8" historyManagementEnabled="false">
+				<mx:VBox label="Chat" width="100%" height="100%">
+					<mx:TextArea width="100%" height="100%" id="chatBox" editable="false" valueCommit="chatBox.verticalScrollPosition=chatBox.maxVerticalScrollPosition"/>
+					<mx:HBox width="100%">
+						<mx:Label text="Type text : "/>
+						<mx:TextInput id="sChat" width="100%" keyDown="sendMessage(event)"/>
+						<mx:Button label="Send" click="sendMessage(event)" />
+					</mx:HBox>
+				</mx:VBox>
+				
+				<mx:VBox label="Parameters" width="100%" height="100%">
+					<mx:Spacer height="100%"/>
+					
+					<mx:HBox>
+						<mx:Label text="Quality"/>
+						<s:NumericStepper id="quality" minimum="0" maximum="100" change="onQuality()" toolTip="0 means variable"/>
+						<mx:Label text="%"/>
+						<s:NumericStepper id="bandwith" minimum="0" maximum="20480" stepSize="1" change="onQuality()" value="128" toolTip="0 means variable (it's Kilobits, not Kilobytes!)"/>
+						<mx:Label text="Kbps"/>
+					</mx:HBox>
+					
+					<mx:HBox width="100%">
+						<mx:Label text="Resolution"/>
+						<mx:ComboBox id="comboSizes" dataProvider="{listSizes}" change="onSizeChanged()" selectedItem="640x480" editable="false"/>
+					</mx:HBox>
+				</mx:VBox>
+				
+				<mx:VBox label="Logs" width="100%" height="100%">
+					<mx:TextArea width="100%" height="100%" id="debugText" editable="false" valueCommit="debugText.verticalScrollPosition=debugText.maxVerticalScrollPosition"/>
+				</mx:VBox>
+			</mx:TabNavigator>
+		</mx:Canvas>
+	</s:VGroup>
+	
+</s:Application>

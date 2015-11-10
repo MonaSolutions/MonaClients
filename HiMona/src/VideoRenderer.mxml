@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Canvas xmlns:fx="http://ns.adobe.com/mxml/2009" xmlns:local="*" 
+				xmlns:mx="library://ns.adobe.com/flex/mx" creationComplete="init()">
+	<fx:Declarations>
+	</fx:Declarations>
+	<fx:Metadata> 
+		[Event(name="log", type="mx.logging.LogEvent")] 
+	</fx:Metadata> 
+	<fx:Script>
+		<![CDATA[
+			import flash.display.Shape;
+			import flash.geom.ColorTransform;
+			import flash.net.NetStream;
+			import flash.utils.ByteArray;
+			import flash.media.Video;
+			import mx.logging.LogEvent;
+			import flash.net.FileReference;
+			
+			private const _connection:NetConnection = new NetConnection(); 
+			private const _header:ByteArray = new ByteArray();
+			private var _running:Boolean = false;
+			private var _stream:NetStream;
+			private var _fakeStream:NetStream;
+			private var _video:Video = new Video();
+			private var _bufferised:Boolean;
+			
+			// Playing parameters
+			private var _bytes:FLVContainer = new FLVContainer();
+			private var _firstVideo:Boolean = true;
+			private var _codecInfos:ByteArray = new ByteArray(); // Used to remember codec infos for recording feature
+			
+			// Recording parameters
+			private var _recordingBytes:FLVContainer = new FLVContainer();
+			private var _recordingFirstVideo:Boolean = true;
+			private var _recording:Boolean = false;
+			
+			private function init():void {
+				_header.writeUTFBytes("\x46\x4c\x56\x01\x05\x00\x00\x00\x09\x00\x00\x00\x00");
+				_connection.connect(null);
+				_video.width = this.width;
+				_video.height = this.height;
+				videoDisplay.addChild(_video);
+			}
+			
+			public function refreshLayout():void {
+				_video.width = this.width;
+				_video.height = this.height;
+			}
+			
+			public function get bufferLength():Number { return _stream ? _stream.bufferLength : 0; }
+			public function get congested():Boolean { return bufferised && _stream.bufferLength<1.4; }
+			public function get bufferised():Boolean {
+				if(!_bufferised) {
+					if(_stream.bufferLength>=1.4)
+						_bufferised = true;
+				}
+				return _bufferised;
+			}
+			public function resetBufferisation():void { _bufferised = false; }
+	
+			
+			public function play(connection:NetConnection,name:String):void {
+				stop();
+				_bufferised = false;
+				_stream = new NetStream(connection);
+				_stream.addEventListener(NetStatusEvent.NET_STATUS, onNetStatus);
+				_stream.bufferTime = 0;
+				_stream.bufferTimeMax = 0;
+				_stream.client = this;
+				_stream.play(name + "?onAudio=onAudio&onVideo=onVideo"); // publication name + raw requested
+			}
+			
+			public function get recording():Boolean { return _recording; }
+			public function get playing():Boolean { return _stream && !_running ? true : false; }
+			public function get running():Boolean { return _running; }
+			public function get firstData():Boolean { return _firstVideo; }
+
+			public function start():void {
+				if(_running)
+					stop();
+				_bufferised = false;
+				_running = true;
+				_fakeStream = new NetStream(_connection);
+				_fakeStream.addEventListener(NetStatusEvent.NET_STATUS,onFakeNetStatus);
+				_video.attachNetStream(_fakeStream);
+				pushHeader();
+				_firstVideo = true; // after pushHeader!
+				_codecInfos.clear();
+			}
+			
+			public function startRecording():void {
+				dispatchEvent(new LogEvent("Start recording stream..."));
+				if (_recording) {
+					dispatchEvent(new LogEvent("Deleting previous recorded bytes"));
+					_recordingBytes.clear();
+				}
+				_recordingBytes.writeBytes(_header);
+				_recordingFirstVideo = true;
+				_recording = true;
+				_recordingBytes.resetTime();
+			}
+			
+			public function saveToFile():void {
+				var file:FileReference = new FileReference();
+				_recording = false;
+				file.save(_recordingBytes, "recorded.flv");
+				_recordingBytes.clear();
+			}
+			
+			private function push(isVideo:Boolean,time:uint,data:ByteArray):void {
+				if(!running)
+					throw("Renderer is not running, you can't push something");
+				
+				// Show the packet
+				_bytes.clear();
+				_bytes.writeFLVPacket(isVideo, time, data);
+				_fakeStream.appendBytes(_bytes);
+				
+				// Recording?
+				if (_recording) {
+					if(_recordingFirstVideo) {
+						if(data.length==0 || (data[0]&0xF0)!=0x10) // wait keyframe
+							return;
+						dispatchEvent(new LogEvent("First video frame found"));
+						_recordingFirstVideo = false;
+						_recordingBytes.writeFLVPacket(true, time, _codecInfos);
+					}
+					_recordingBytes.writeFLVPacket(isVideo, time, data);
+				}
+			}
+			
+			public function pushHeader():void {
+				_bytes.resetTime();
+				_fakeStream.play(null);
+				_fakeStream.bufferTime = 0.1;
+				_fakeStream.bufferTimeMax = 0.5;
+				_fakeStream.appendBytesAction(NetStreamAppendBytesAction.RESET_BEGIN);
+				_fakeStream.appendBytes(_header); // push flv header
+				_firstVideo = false;
+			}
+			
+			public function stop():void {
+				if(_stream) {
+					if(_running)
+						_fakeStream.appendBytesAction(NetStreamAppendBytesAction.END_SEQUENCE);
+					_fakeStream.removeEventListener(NetStatusEvent.NET_STATUS,onNetStatus);
+					_fakeStream.close();
+					_fakeStream = null;
+				}
+					
+				_running=false;
+				_video.clear();
+			}
+			
+			private function onFakeNetStatus(e:NetStatusEvent):void {
+				if(e.info.description)
+					dispatchEvent(new LogEvent("Fake : "+e.info.code + ", " + e.info.description));
+				else
+					dispatchEvent(new LogEvent("Fake : " + e.info.code));
+					
+				switch(e.info.code) {
+					case "NetStream.Buffer.Full":		
+						_fakeStream.bufferTime = 0.1;
+						_fakeStream.bufferTimeMax = 0.5;
+						/*_fakeStream.seek(0);
+						_fakeStream.appendBytesAction(NetStreamAppendBytesAction.RESET_SEEK);*/
+						break;
+				}
+			}
+
+			private function onNetStatus(e:NetStatusEvent):void {
+				if(e.info.description)
+					dispatchEvent(new LogEvent("Real : "+e.info.code + ", " + e.info.description));
+				else
+					dispatchEvent(new LogEvent("Real : "+e.info.code));
+	
+				switch(e.info.code) {
+					case "NetStream.Video.DimensionChange":
+						_video.width = _video.videoWidth;
+						_video.height = _video.videoHeight;
+						dispatchEvent(new Event(Event.CHANGE));
+						break;
+					case "NetStream.Buffer.Full":
+						_bufferised = true;
+						break;
+					case "NetStream.Buffer.Empty":
+						_bufferised = false;
+						break;
+					case "NetStream.Play.Start":
+						start();
+						break;
+					default:
+						break;
+				}
+			}
+			
+			/********* FUNCTIONS CALLED BY MONA ***********/
+			
+			public function onAudio(time:uint,data:ByteArray):void {
+				push(false,time,data);
+			}
+			
+			public function onVideo(time:uint,data:ByteArray):void {
+				if(_firstVideo) {
+					if(data.length==0 || (data[0]&0xF0)!=0x10) // wait keyframe
+						return;
+					_codecInfos.writeBytes(data); // Remember codec infos for recording feature
+					_firstVideo = false;
+				}
+				// Uncomment to check buffering time
+				/*else if (data.length > 0 && (data[0] & 0xF0) == 0x10) {
+					dispatchEvent(new LogEvent("seeking (buffer: "+_fakeStream.bufferLength+")"));
+				}*/
+				push(true,time,data);
+			}
+			
+			public function onMetaData(metadata:Object):void {
+				var text:String="";
+				for(var key:String in metadata) {
+					var value:String = metadata[key];
+					text += key + ": " + value;
+					if(value.length==0 || value.charCodeAt(value.length-1)!=10)
+						text += "\n";
+				}
+				videoDisplay.toolTip = text;
+			}
+			
+		]]>
+	</fx:Script>
+	
+	<mx:UIComponent id="videoDisplay" width="100%" height="100%" opaqueBackground="0x000000" />
+</mx:Canvas>
