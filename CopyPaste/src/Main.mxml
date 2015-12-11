@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:fx="http://ns.adobe.com/mxml/2009"
+				xmlns:s="library://ns.adobe.com/flex/spark" 
+				xmlns:mx="library://ns.adobe.com/flex/mx"
+				minWidth="800" minHeight="600" applicationComplete="init();"
+				backgroundColor="#FFFFFF">
+	<fx:Script>
+		<![CDATA[
+			import flash.events.TimerEvent;
+			import flash.utils.ByteArray;
+			import flash.utils.getTimer;
+			import flash.utils.Timer;
+			import mx.events.CloseEvent;
+			import mx.utils.URLUtil;
+			
+			public const SIZE_CHUNKS:Number=1024; ///< 1024o per chunks
+			private var _netConnection:NetConnection = new NetConnection();
+			private var _netGroup:NetGroup;
+			public 	var p2pSharedObject:P2PSharedObject;
+			private var _url:String; 
+			private var _groupName:String;
+			private var _timeStart:int; // To calculate time elapsed in download
+			
+			private var _nameGroup:String; // name if it is a receiver
+			
+			private var _sendingTimer:Timer = new Timer(1000,1); // To wait 1s before sending the text (otherwise text is sent too often)
+			
+			// Connect to MonaServer
+			private function init():void {
+				
+				// Generate dynamic url
+				var url:String = this.loaderInfo.url;
+				var domainNPath:Array = url.match(/(:\/\/.+)\//);
+				if (URLUtil.getProtocol(url) == "file") {
+					writeMessage("Sorry you can't load this application locally");
+					return;
+				}
+				_url = "rtmfp" + domainNPath[1];
+				shareLink.text = "http" + domainNPath[1] + "/?name=" ;
+				
+				// ?name=...
+				if (loaderInfo.parameters && loaderInfo.parameters.name) {
+					subTitle1.text = "See what you're friend is typing and copy anything you want";
+					_nameGroup = loaderInfo.parameters.name;
+					textZone.text = "";
+					textZone.editable = false;
+				}
+
+				writeMessage("Connecting to the server...");
+				
+				// Connection
+				_netConnection.addEventListener(NetStatusEvent.NET_STATUS, netStatus);
+				_netConnection.connect(_url);
+				_netConnection.client = this;
+				
+				_sendingTimer.addEventListener(TimerEvent.TIMER_COMPLETE, onSendingReached);
+			}
+			
+			private function netStatus(event:NetStatusEvent):void{
+				
+				switch(event.info.code){
+					case "NetConnection.Connect.Success": // Connected to server => NetGroup connection 
+						if (_nameGroup) { // Receiver : connect to MonaServer
+							var spec:GroupSpecifier = new GroupSpecifier(_nameGroup);
+							spec.serverChannelEnabled = true;
+							spec.objectReplicationEnabled = true;
+							
+							_netGroup = new NetGroup(_netConnection,spec.groupspecWithAuthorizations());
+							_netGroup.addEventListener(NetStatusEvent.NET_STATUS,netStatus);
+						} //else // Sender : show browse button*/
+							modeStack.selectedIndex = 0;
+						
+						break;
+					
+					case "NetGroup.Connect.Success": // Connected to group
+						_netGroup.replicationStrategy = NetGroupReplicationStrategy.LOWEST_FIRST;
+						if (_nameGroup) {// Receiver : start receiving
+							
+							resetPage();
+						} else { // Sender : start sharing
+							_netGroup.addHaveObjects(0, p2pSharedObject.packetLength);
+							sharingPeers.text = "Sharing : 1";
+						}
+						break;
+					
+					case "NetGroup.Replication.Fetch.Result": // Reception of the text
+						
+						// Share the chunk downloaded
+						_netGroup.addHaveObjects(event.info.index,event.info.index);
+						p2pSharedObject.chunks[event.info.index] = event.info.object;
+						
+						// Chunk number
+						if(event.info.index == 0){
+							_timeStart = getTimer();
+							p2pSharedObject.packetLength = Number(event.info.object);							
+							loadingBar.setProgress(0, 100);
+							modeStack.selectedIndex = 2;
+						} 
+						// Group Name
+						else if (event.info.index == 1) {
+							p2pSharedObject.name = String(event.info.object);
+						}
+						// Page Reception Complete!
+						else if (event.info.index+1 >= p2pSharedObject.packetLength) {
+							loadingBar.setProgress(100, 100);
+							
+							p2pSharedObject.data = new ByteArray();
+							for(var i:int = 2;i<p2pSharedObject.packetLength;i++){
+								p2pSharedObject.data.writeBytes(p2pSharedObject.chunks[i]);
+							}
+							p2pSharedObject.data.position = 0;
+							textZone.text = p2pSharedObject.data.readUTF(); // set the text data
+							elapsedTime.text = "Last receiving time : " + ((getTimer()-_timeStart)/1000) + "s";
+							writeMessage("Text size : "+p2pSharedObject.data.length+" bytes");
+							_netConnection.call("newSharer", null, _nameGroup); // inform Mona of the new sharing peer
+							return;
+						}
+						var progress:int = ((event.info.index+1) / p2pSharedObject.packetLength)*100;
+						loadingBar.setProgress(progress, 100);
+						_netGroup.addWantObjects(event.info.index+1, event.info.index+1);
+						
+						break;
+					
+					case "NetGroup.Replication.Request": // page requested
+						_netGroup.writeRequestedObject(event.info.requestID, p2pSharedObject.chunks[event.info.index]);
+						break;
+					
+					default:
+						break;
+				}
+			}
+			
+			// Called by Mona, download again the whole text
+			public function resetPage():void {
+				// Notify Mona of the new downloading peer
+				_netConnection.call("newDownloader", new Responder(null, function():void {
+					writeMessage("Sorry this link does not exists anymore");
+				}), _nameGroup);
+				p2pSharedObject = new P2PSharedObject();
+				p2pSharedObject.chunks = new Object();
+				writeMessage("Refreshing...");
+				_netGroup.addWantObjects(0,0);
+			}
+			
+			// Called when timer expires : we must send the changes
+			private function onSendingReached(e:TimerEvent):void {
+				p2pSharedObject = new P2PSharedObject();
+				p2pSharedObject.data = new ByteArray();
+				p2pSharedObject.data.writeUTF(textZone.text);
+				p2pSharedObject.data.position = 0; // Back to start
+				p2pSharedObject.name = _netConnection.nearID;
+				p2pSharedObject.chunks = new Object();
+				p2pSharedObject.packetLength = 2;
+				
+				// Write each chunked part of the text
+				var size:Number = 0;
+				while((size = p2pSharedObject.data.bytesAvailable) > 0) {
+					
+					p2pSharedObject.chunks[p2pSharedObject.packetLength] = new ByteArray();
+					if (size >= SIZE_CHUNKS)
+						p2pSharedObject.data.readBytes(p2pSharedObject.chunks[p2pSharedObject.packetLength],0,SIZE_CHUNKS);
+					else // last bytes
+						p2pSharedObject.data.readBytes(p2pSharedObject.chunks[p2pSharedObject.packetLength],0,p2pSharedObject.data.bytesAvailable);
+					p2pSharedObject.packetLength += 1;
+				}
+				p2pSharedObject.chunks[0] = p2pSharedObject.packetLength;
+				p2pSharedObject.chunks[1] = p2pSharedObject.name;
+				
+				// Try to register and create the group
+				_netConnection.call("registerPage", new Responder(onPageRegistered, function(error:Object):void {
+					writeMessage("Error : Unable to register "+_netConnection.nearID);
+				}), p2pSharedObject.name);
+			}
+			
+			// Chunk the text in objects of size SIZE_CHUNKS and start to share it
+			private function startSharing():void {
+				if (_sendingTimer.running)
+					_sendingTimer.stop(); // stop the timer to wait 1s more
+					
+				_sendingTimer.start();
+			}
+			
+			// Called when text has been registered
+			private function onPageRegistered(name:String):void {
+				
+				modeStack.selectedIndex = 1;
+				if (!_netGroup) { // First share
+					shareLink.text += name;
+					_groupName = name;
+					var spec:GroupSpecifier = new GroupSpecifier(name);
+					spec.serverChannelEnabled = true;
+					spec.objectReplicationEnabled = true;
+					
+					_netGroup = new NetGroup(_netConnection,spec.groupspecWithAuthorizations());
+					_netGroup.addEventListener(NetStatusEvent.NET_STATUS, netStatus);
+				}
+			}
+			
+			// Write the message and show the panel of messages
+			private function writeMessage(txt:String):void {
+				messageBox.text = txt;
+				modeStack.selectedIndex = 3;
+			}
+			
+			// called by Mona to update group infos 
+			public function updateInfos(download:int, share:int):void {
+				downloadingPeers.text = "Downloading : " + download; 
+				sharingPeers.text = "Sharing : " + share;
+			}
+		]]>
+	</fx:Script>
+	<mx:VBox width="800" height="800">
+		<mx:VBox width="100%" height="140">
+			<mx:LinkButton id="title" width="100%" height="80" color="#000000" fontFamily="Verdana" fontSize="36"
+					  fontStyle="italic" fontWeight="bold" label="Copy/Paste P2P App" textAlign="center" click="navigateToURL(new URLRequest('./'), '_self');"/>
+			<mx:Label id="subTitle1" width="100%" color="#66CC66" fontSize="17" fontWeight="bold" textAlign="center" text="Share any text with your friends"/>
+		</mx:VBox>
+		<mx:HBox width="100%" height="120">
+			<mx:VBox width="395" height="120" backgroundColor="#66CC66" borderColor="#FFFFFF"
+					 borderStyle="solid" borderThickness="9" cornerRadius="20" verticalAlign="middle">
+				<mx:Label id="elapsedTime" color="#FFFFFF" fontSize="17" fontWeight="bold" text=""/>
+			</mx:VBox>
+			<mx:VBox width="195" height="120" backgroundColor="#66CC66" borderColor="#FFFFFF"
+					 borderStyle="solid" borderThickness="9" cornerRadius="20" verticalAlign="middle">
+				<mx:Label id="sharingPeers" color="#FFFFFF" fontSize="17" fontWeight="bold" text="Sharing : 0"/>
+				<mx:Label id="downloadingPeers" color="#FFFFFF" fontSize="17" fontWeight="bold" text="Downloading : 0"/>
+			</mx:VBox>			
+		</mx:HBox>
+		<mx:HBox width="100%" height="400">
+				<mx:TextArea id="textZone" change="startSharing()" width="100%" height="100%" text="Paste your text here" cornerRadius="17" fontSize="17" horizontalCenter="0" verticalCenter="0"/>	
+		</mx:HBox>
+		<mx:ViewStack id="modeStack" creationPolicy="all" width="100%" height="100" backgroundColor="#66CC66" borderColor="#FFFFFF"
+					  borderStyle="solid" borderThickness="9" cornerRadius="20">
+			<s:NavigatorContent> <!-- 0 :  -->
+				<!--<mx:Button height="40" label="Share" click="startSharing(event);"
+						   color="#FFFFFF" cornerRadius="17" fillAlphas="[1.0, 1.0]"
+						   fillColors="[#66CC66, #66CC66]" fontSize="17" horizontalCenter="0" verticalCenter="0"/>-->
+			</s:NavigatorContent>
+			<s:NavigatorContent> <!-- 1 : Show link to share -->
+				<mx:VBox width="100%" verticalCenter="0">
+					<mx:Label color="#FFFFFF" fontSize="17" fontWeight="bold" text="Share this link to your recipients :"/>
+					<mx:HBox width="100%" backgroundColor="#FFFFFF" borderColor="#000000" borderStyle="solid">
+						<mx:Label id="shareLink" color="#0C00FF" fontSize="14" fontWeight="normal" selectable="true" truncateToFit="false" text="url to share" textDecoration="underline" maxWidth="560"/>
+					</mx:HBox>
+				</mx:VBox>
+			</s:NavigatorContent>
+			<s:NavigatorContent> <!-- 2 : Loading bar -->
+				<mx:ProgressBar id="loadingBar" color="#FFFFFF" fontSize="14" horizontalCenter="0" mode="manual" verticalCenter="0"/>
+			</s:NavigatorContent>
+			<s:NavigatorContent> <!-- 3 : Message box -->
+				<mx:Label id="messageBox" color="0xFFFFFF" fontSize="17" fontWeight="bold" text="" horizontalCenter="0" verticalCenter="0"/>
+			</s:NavigatorContent>
+		</mx:ViewStack>
+	</mx:VBox>
+</mx:Application>

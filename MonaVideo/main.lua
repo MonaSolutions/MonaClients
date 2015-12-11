@@ -5,11 +5,6 @@ function onConnection(client,...)
 	
 	INFO("Connection to MonaVideo from ip ", client.address, " (protocol: ", client.protocol, ")")
 	
-	local userAgent = client.properties["User-Agent"]
-	if userAgent and string.find(userAgent, "Mobile") then
-		return {index="MonaVideoMobile.html"}
-	end
-	
 	-- Connection from a peer
 	-- name : name of the meeting
 	-- matrix : transformation to apply on the remote camera
@@ -57,7 +52,12 @@ function onDisconnection(client)
 		local meeting = listNames[client.meetingName]
 		
 		-- Stop the meeting & delete it
-		if meeting then
+		if meeting then 
+            if meeting.client1 ~= client and meeting.client2 ~= client then
+                DEBUG("An old client is gone from ", client.meetingName, ", nothing to do")
+                return
+            end
+            
 			NOTE("A client is gone from ", client.meetingName, ", deleting the session...")
 			if client == meeting.client1 and meeting.client2 then meeting.client2.writer:writeInvocation("onChange", "disconnect") end
 			if client == meeting.client2 and meeting.client1 then meeting.client1.writer:writeInvocation("onChange", "disconnect") end

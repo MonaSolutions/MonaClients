@@ -49,6 +49,11 @@ function onConnection(client,...)
       local meeting = listNames[client.meetingName]
       
       if meeting then
+        if meeting.client1 ~= client and meeting.client2 ~= client then
+            DEBUG("An old client is gone from ", client.meetingName, ", nothing to do")
+            return
+        end
+          
         if client == meeting.client1 and meeting.client2 then meeting.client2.writer:writeInvocation(command, ...) end
         if client == meeting.client2 and meeting.client1 then meeting.client1.writer:writeInvocation(command, ...) end
         return ...

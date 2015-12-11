@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8"/>
+	<title>CopyPaste</title>
+	<meta name="description" content="" />
+	
+	<script src="js/swfobject.js"></script>
+	<script>
+		var flashvars = {};
+            
+		 // ---------------- Added to get dynamically the query parameters ----------------- 
+		
+		var queryIndex = window.location.href.indexOf("?");
+		if (queryIndex > 0) {
+			var query = window.location.href.substr(queryIndex+1);
+			var tabParams = query.split("&");
+			for (var i = 0; i < tabParams.length; i++) {
+				var tuple = tabParams[i].split("=");
+				flashvars[tuple[0]]=tuple[1];
+			}
+		}
+            
+		var params = {
+			menu: "false",
+			scale: "noScale",
+			allowFullscreen: "true",
+			allowScriptAccess: "always",
+			bgcolor: "",
+			wmode: "direct" // can cause issues with FP settings & webcam
+		};
+		var attributes = {
+			id:"CopyPaste"
+		};
+		swfobject.embedSWF(
+			"CopyPaste.swf", 
+			"altContent", "100%", "100%", "10.0.0", 
+			"expressInstall.swf", 
+			flashvars, params, attributes);
+	</script>
+	<style>
+		html, body { height:100%; overflow:hidden; }
+		body { margin:0; }
+	</style>
+</head>
+<body>
+	<div id="altContent">
+		<h1>CopyPaste</h1>
+		<p><a href="http://www.adobe.com/go/getflashplayer">Get Adobe Flash player</a></p>
+	</div>
+</body>
+</html>
