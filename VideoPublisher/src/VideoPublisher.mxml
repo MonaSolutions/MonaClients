@@ -15,6 +15,16 @@
 				
 	<fx:Script>
 		<![CDATA[
+			/*
+			 * Usage : http://<host>/VideoPublisher/[?options]
+			 * 
+			 * Options are :
+			 * 
+			 * - url=<url>              Set the url to connect to (automatic connection)
+			 * 
+			 * Example : http://127.0.0.1/VideoPlayer/?url=rtmfp://127.0.0.1/app/test123 will connect automatically to "app" on localhost and publish "test123"
+			 */
+		
 			import mx.collections.ArrayList;
 			import mx.controls.Alert;
 			import mx.utils.URLUtil;
@@ -66,6 +76,17 @@
 				var domainNPath:Array = url.match(/(:\/\/.+)\//);
 				if (URLUtil.getProtocol(url) != "file")
 					address.text = "rtmfp" + domainNPath[1] + "/test123";
+					
+				// Manage parameters
+				if (loaderInfo.parameters) {
+					
+					// Finally, automatically connect to the url in parameter
+					// url : host + path of the stream
+					if (loaderInfo.parameters.url) {				
+						address.text = loaderInfo.parameters.url;
+						connect();
+					}
+				}
 			}
 			
 			// net status handler for the NetConnection : connect the netstream and publish
