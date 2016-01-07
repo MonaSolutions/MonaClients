@@ -21,6 +21,8 @@
 			 * Options are :
 			 * 
 			 * - url=<url>              Set the url to connect to (automatic connection)
+			 * - bandwith=<value>		Bandwith rate in Kbps
+			 * - quality=<percentage>	Quality of the video in percent (0 means that bandwith parameter is used to determine the quality)
 			 * 
 			 * Example : http://127.0.0.1/VideoPlayer/?url=rtmfp://127.0.0.1/app/test123 will connect automatically to "app" on localhost and publish "test123"
 			 */
@@ -65,11 +67,7 @@
 				listCam.addItem("Off");
 				
 				comboCam.selectedIndex = 0;
-				onCamChange();
-				
-				// Select the first video codec & set video quality
 				comboVideoCodec.selectedIndex = 0;
-				onVideoCodec();
 				
 				// Generate dynamic url
 				var url:String = this.loaderInfo.url;
@@ -80,6 +78,11 @@
 				// Manage parameters
 				if (loaderInfo.parameters) {
 					
+					if (loaderInfo.parameters.quality)
+						quality.value = loaderInfo.parameters.quality;
+					if (loaderInfo.parameters.bandwith)
+						bandwith.value = loaderInfo.parameters.bandwith;
+					
 					// Finally, automatically connect to the url in parameter
 					// url : host + path of the stream
 					if (loaderInfo.parameters.url) {				
@@ -87,6 +90,11 @@
 						connect();
 					}
 				}
+				
+				onCamChange();
+				
+				// Select the first video codec & set video quality
+				onVideoCodec();
 			}
 			
 			// net status handler for the NetConnection : connect the netstream and publish
@@ -308,6 +316,7 @@
 				if (!_cam) return;
 				
 				_cam.setQuality(bandwith.value*125,quality.value);
+				console.text += "Video parameters changed (bandwith : " + bandwith.value + " Kbps, quality : " + quality.value + "%)\n";
 			}
 			
 			// Change the video frames rate
