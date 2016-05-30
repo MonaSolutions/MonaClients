@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:View xmlns:fx="http://ns.adobe.com/mxml/2009" 
+        xmlns:s="library://ns.adobe.com/flex/spark" 
+		xmlns:mx="library://ns.adobe.com/flex/mx" 
+		title="HomeView" creationComplete="init()" actionBarVisible="false">
+	
+	<fx:Script>
+		<![CDATA[
+			private var _netConnection:NetConnection;
+			private var _receiveNS:NetStream;
+			private var _domainNPath:String; // url of the video
+			private var _name:String; // name of the video
+			private var _netGroup:NetGroup;
+			private var _vid:Video = new Video(800, 600);
+			
+			
+			// Width & Height of the video layout
+			/*private var _width:int = 800;
+			private var _height:int = 600;		*/
+		
+			private function init():void {
+				console.text += "Initialization of the video player\n";
+				
+				// Add RTMP/RTMFP video player 
+				_vid.opaqueBackground = 0x000000;
+				_vid.smoothing = true;
+				videoUI.addChild(_vid);
+				
+				// Generate dynamic url
+				/*var url:String = this.loaderInfo.url;
+				var domainNPath:Array = url.match(/(:\/\/.+)\//);
+				if (URLUtil.getProtocol(url) != "file")
+					address.text = "rtmfp" + domainNPath[1] + "/test123";*/
+					
+				// Generate netconnection for RTMP/RTMFP player
+				_netConnection = new NetConnection();
+				_netConnection.client = this;
+				_netConnection.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetConnection);
+				_netConnection.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
+				_netConnection.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
+				
+				// FullScreen Escape event
+				//stage.addEventListener(FullScreenEvent.FULL_SCREEN, onEscapeFullScreen);
+				
+				// Update the size of the video layout
+				//resetVideoLayout(_width, _height);
+				
+				// Add close window handler to close connection
+				/*try {
+					ExternalInterface.addCallback("sendToActionScript", closeWindow);
+				} catch(e:Error) {}*/
+			}
+	
+			// Receive message from the publisher
+			public function message2All(message:String):void {messages.text = message; }
+			
+			// Manage NetStream events
+			private function onStatusNetStream(evt:Event):void {
+				 
+				if (evt is IOErrorEvent)
+					 console.text +=  "NetStream error : " + IOErrorEvent(evt).text + "\n"; 
+				else if (evt is AsyncErrorEvent)
+					 console.text +=  "NetStream error : " + AsyncErrorEvent(evt).text + "\n"; 
+				else {
+					 var event:NetStatusEvent = NetStatusEvent(evt);
+					 console.text +=  "NetStream event : " + event.info.code + "\n";
+					 
+					 switch (event.info.code) {
+						// Only for scalability
+						// see http://monasolutions.github.io/MonaServer/scalability.html#exchange-data-and-resources 
+						case "NetStream.Play.Failed":
+							 var error:Array = event.info.description.split(" ");
+							 if (error.length > 0) {
+								 var host:String = "rtmfp://" + error[error.length-1];
+								 
+								 _netConnection.close();
+								 _netConnection.connect(host);
+							 }
+							 break;
+						// Reset video size layout size
+						case "NetStream.Video.DimensionChange":
+							/*if (!_fixedSize)
+								resetVideoLayout(_vid.videoWidth, _vid.videoHeight);*/
+							break;
+					}
+				}
+			}
+			 
+			// Manage NetConnection events
+			private function onStatusNetConnection(evt:Event):void {
+				
+				if (evt is IOErrorEvent)
+					 console.text +=  "NetConnection error : " + IOErrorEvent(evt).text + "\n"; 
+				else if (evt is AsyncErrorEvent)
+					 console.text +=  "NetConnection error : " + AsyncErrorEvent(evt).text + "\n"; 
+				else {
+					var event:NetStatusEvent = NetStatusEvent(evt);
+					
+					console.text += 'NetConnection event : ' + event.info.code + "\n";
+					
+					switch (event.info.code) {
+						case "NetConnection.Connect.Success":
+							// Classic listening
+							if (group.text == "" && groupspecifier.text == "") {
+								console.text += "Start playing stream " + _name + "\n";
+								_receiveNS = new NetStream(_netConnection);
+								onBufferSize();
+								_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
+								_vid.attachNetStream(_receiveNS);
+								_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
+								_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
+								_receiveNS.client = this;
+								_receiveNS.play(_name);
+							} else { // Netgroup listening
+								
+								var groupId:String = groupspecifier.text;
+								if (groupspecifier.text == "") {
+									var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
+									groupSpec.peerToPeerDisabled = false; 
+									groupSpec.serverChannelEnabled=true; 
+									groupSpec.ipMulticastMemberUpdatesEnabled=true; 
+									groupSpec.multicastEnabled=true; 
+									groupSpec.postingEnabled=true;
+									groupId = groupSpec.groupspecWithAuthorizations();
+								}
+								
+								console.text += "GroupSpec created : " + groupId + "\n";
+								_receiveNS = new NetStream(_netConnection, groupId);
+								_receiveNS.addEventListener(NetStatusEvent.NET_STATUS, onStatusNetStream);
+								_receiveNS.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusNetStream);
+								_receiveNS.addEventListener(IOErrorEvent.IO_ERROR, onStatusNetStream);
+								//_receiveNS.inBufferSeek = false;
+								_receiveNS.client = this;
+								onVolumeChange(); // update the volume
+								
+								_netGroup = new NetGroup(_netConnection,groupId); 
+								//_netGroup.receiveMode = NetGroupReceiveMode.NEAREST;
+								_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
+									console.text +=  "NetGroup event : " + evt.info.code + "\n";
+								});
+							}
+							// Faster video stream (but unreliable)
+							/*if (loaderInfo.parameters && loaderInfo.parameters.unreliable) {
+								console.text +=  "Unreliable stream requested\n";
+								_receiveNS.videoReliable = false;
+								_receiveNS.audioReliable = false;
+							}*/
+							
+							break;
+						case "NetStream.Connect.Success": // Group connection
+							if (group.text != "" || groupspecifier.text != "") {
+								_vid.attachNetStream(_receiveNS);
+								_receiveNS.play(_name);
+								onBufferSize();
+							}
+							break;
+					}
+				}
+			}
+			
+			// Connect to the RTMP/RTMFP link
+			private function onConnect():void {
+				
+				var lastSlash:int = address.text.lastIndexOf("/");
+				_domainNPath=address.text.substr(0,lastSlash);
+				_name=address.text.substr(lastSlash+1);
+				console.text += "Connection to '" + _domainNPath + "' (stream name : " + _name+")\n";				
+				if (_netConnection.connected)
+					_netConnection.close();
+
+				_netConnection.connect(_domainNPath);
+			}
+			
+			// Called when buffer size value change
+			private function onBufferSize():void {
+				if (_receiveNS) {
+					_receiveNS.bufferTime = bufferSize.value / 1000;
+					_receiveNS.bufferTimeMax = maxBufferSize.value / 1000;
+				}
+			}
+			
+			private function onVolumeChange():void {
+				
+				if (_receiveNS) {
+					console.text += "Volume : " + volume.value + "\n";
+					_receiveNS.soundTransform = new SoundTransform(volume.value / 100);
+				}
+			}
+		]]>
+	</fx:Script>
+	<mx:TabNavigator  width="100%" height="100%" creationPolicy="all">
+		<s:NavigatorContent label="Player">
+			<mx:UIComponent id="videoUI" width="100%" height="100%"/>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="Settings">
+			<s:VGroup width="100%" height="100%">
+				<s:HGroup width="100%">
+					<s:Label text="Url : "/>
+					<s:TextInput id="address" width="100%" text="rtmfp://127.0.0.1/test123"/>
+					<s:Button label="Connect" click="onConnect()"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label text="NetGroup name : "/>
+					<s:TextInput width="100%" id="group" text=""/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label text="NetGroup id : "/>
+					<s:TextInput width="100%" id="groupspecifier" text=""/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label text="Buffer : "/>
+					<s:NumericStepper id="bufferSize" minimum="0" maximum="5000" value="0" change="onBufferSize()" />
+					<s:Label text="ms"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label text="Max Buffer : "/>
+					<s:NumericStepper id="maxBufferSize" minimum="0" maximum="5000" value="500" change="onBufferSize()" />
+					<s:Label text="ms"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label text="Messages : "/>
+					<s:TextInput width="100%" id="messages" editable="false"/>
+				</s:HGroup>
+				<s:HGroup width="100%">
+					<s:Label text="Volume : "/>
+					<mx:Slider minimum="0" maximum="100" value="100" change="onVolumeChange()" id="volume" direction="horizontal" width="90%" />
+				</s:HGroup>
+			</s:VGroup>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="Logs">
+			<s:TextArea height="100%" width="100%" id="console" editable="false"/>
+		</s:NavigatorContent>
+	</mx:TabNavigator>
+</s:View>
