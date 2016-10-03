@@ -69,6 +69,8 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			private var _timerStats:Timer; // Timer for showing Statistics (disabled by default)
 			private const TIMER_STATS_DELAY:int = 500;
 			
+			public function onBWDone():void {} // just for AMS
+			
 			private function init():void {
 				consoleRTMP.text += "Initialization of the video player\n";
 				
