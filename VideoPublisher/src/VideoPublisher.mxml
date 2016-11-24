@@ -95,6 +95,25 @@
 				
 				// Select the first video codec & set video quality
 				onVideoCodec();
+				
+				// Add close window handler to close connection
+				try {
+					ExternalInterface.addCallback("sendToActionScript", closeWindow);
+				} catch(e:Error) {
+					console.text += "Unable to setup the onunload callback\n";
+				}
+			}
+			
+			/**
+			 * (Chrome fix)
+			 * This function is called from Javascript when the window
+			 * is closed for closing an eventual connection
+			 * It is very IMPORTANT to close correctly the connection,
+			 * otherwise the session remains.
+			 */
+			public function closeWindow(value:String):void {
+				if (_connection && _connection.connected)
+					_connection.close();
 			}
 			
 			// net status handler for the NetConnection : connect the netstream and publish

@@ -6,8 +6,8 @@
     <movie input="" />
     <movie path="VideoPublisher.swf" />
     <movie fps="30" />
-    <movie width="800" />
-    <movie height="600" />
+    <movie width="880" />
+    <movie height="660" />
     <movie version="19" />
     <movie minorVersion="0" />
     <movie platform="Flash Player" />
@@ -42,7 +42,7 @@
     <option linkReport="" />
     <option loadExterns="" />
     <option staticLinkRSL="True" />
-    <option additional="-locale en_US&#xA;-theme+=C:\PROGRA~2\FLASHD~1.2\Apps\FLEXAI~1\460_19~1.0\FRAMEW~1\themes\Halo\halo.swc" />
+    <option additional="-locale en_US&#xA;-theme=lib\halo.swc" />
     <option compilerConstants="" />
     <option minorVersion="" />
   </build>
