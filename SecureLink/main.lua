@@ -1,3 +1,17 @@
+-- SecureLink script for MonaServer
+-- 
+-- This script is used to provide a secure link to avoid connections from unknown sources.
+-- This is inspired by nginx secure_link_module (http://nginx.org/en/docs/http/ngx_http_secure_link_module.html#secure_link_md5)
+--
+-- Usage :
+--
+-- 1) Install this main.lua file into the root directory (www) of MonaServer.
+-- 2) Execute the following command into linux to get the parameters :
+--   e=$((`date +%s` + 3600)); echo $e; echo -n "secret123/test123$e" | openssl md5 -binary | openssl base64 | tr +/ -_ | tr -d '='
+-- 3) Then you can play the stream using the following urls :
+--   rtmfp://<host & port>/test123?e=<result 1>&st=<result 2>
+-- 
+
 -- character table string
 local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
@@ -40,7 +54,7 @@ function onConnection(client)
 		local crypted = enc64(md5)
 		INFO("base64 : ", crypted)
 		crypted = crypted:gsub("/", "_")		
-		crypted = crypted:gsub("-", "-")
+		crypted = crypted:gsub("+", "-")
 		crypted = crypted:gsub("=", "")
 		INFO("crypted : ", crypted)
 		
