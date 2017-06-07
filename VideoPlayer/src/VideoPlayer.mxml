@@ -52,6 +52,7 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			import mx.utils.URLUtil;
 			import flash.events.AsyncErrorEvent;
 			import flash.events.IOErrorEvent;
+			import flash.events.NetStatusEvent;
 			
 			private var _filter:ColorMatrixFilter; // Color filter for button tools
 			
@@ -72,6 +73,7 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 			private const TIMER_STATS_DELAY:int = 500;
 			
 			public function onBWDone():void {} // just for AMS
+			public function close():void {} // for some servers which are searching for close() method
 			
 			private function init():void {
 				console.text += "Initialization of the video player\n";
