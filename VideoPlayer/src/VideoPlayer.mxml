@@ -98,11 +98,15 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 				
 				if (loaderInfo.parameters) {
 					// No configuration panel?
-					if (loaderInfo.parameters.noconfig)
-						containerVideo.removeChild(config);
+					if (loaderInfo.parameters.noconfig) {
+						containerTools.removeChild(config);
+						tools.removeChild(btParameters);
+					}
 					// No tools?
-					if (loaderInfo.parameters.notools)
+					if (loaderInfo.parameters.notools) {
 						containerTools.removeChild(tools);
+						containerTools.removeChild(config);
+					}
 					else {
 						// To change color of tool buttons on over/out
 						var matrix:Array = new Array();
@@ -416,9 +420,8 @@ along with MonaClients.  If not, see <http://www.gnu.org/licenses/>.
 						resetVideoLayout(_vid.videoWidth, _vid.videoHeight);
 					else
 						resetVideoLayout(_width, _height);
-				} else { // FullScreen start
+				} else // FullScreen start
 					resetVideoLayout(width, height);
-				}
 			}
 			
 			// Enable/Disable statistics

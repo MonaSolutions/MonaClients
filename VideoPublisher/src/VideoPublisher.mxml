@@ -7,7 +7,11 @@
 		@namespace s "library://ns.adobe.com/flex/spark";
 		@namespace mx "library://ns.adobe.com/flex/mx";
 		
-		mx|Panel {
+		mx|Application {
+			backgroundColor: #869ca7;
+		}
+		
+		global {
 			backgroundColor: #869ca7;
 		}
 		
@@ -127,36 +131,6 @@
 						if (_dump) // First activate publication dump if requested
 							NetConnection(evt.target).call("dumpON", null);
 						
-						// Classic publishing
-						if (evt.target==_connection) {
-							_outstream = new NetStream(_connection);
-							_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
-							_outstream.attachCamera(_cam);
-							_outstream.attachAudio(_mic);
-							_outstream.videoStreamSettings = _videoCodec;
-							_outstream.publish(_publishName);
-							onReliable(); // set reliability
-						} else { // NetGroup publishing
-							
-							var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
-							groupSpec.peerToPeerDisabled = false; 
-							groupSpec.serverChannelEnabled=true; 
-							groupSpec.ipMulticastMemberUpdatesEnabled=true; 
-							groupSpec.multicastEnabled=true; 
-							groupSpec.postingEnabled=true;
-							var groupId:String = groupSpec.groupspecWithAuthorizations(); 
-							
-							console.text += "GroupSpec created : " + groupId + "\n";
-							_outstream = new NetStream(_connection2, groupId);
-							_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
-							_outstream.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusOutstream);
-							onReliable(); // set reliability
-							
-							_netGroup = new NetGroup(_connection2,groupId); 
-							_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
-								console.text +=  "NetGroup event : " + evt.info.code + "\n"; 
-							});
-						}
 						break;
 					case "NetStream.Connect.Success":
 						if (evt.target==_connection2) {
@@ -166,8 +140,13 @@
 							_outstream.publish(_publishName);
 						}
 						break;
+					case "NetStream.Unpublish.Success":
+						btPublish.label = "Publish";
+						break;
+					case "NetConnection.Connect.Failed":
 					case "NetConnection.Connect.Closed":
 						btPublish.label = "Publish";
+						btConnect.label = "Connect";
 						cbDump.enabled = true;
 						break;
 				}
@@ -181,7 +160,7 @@
 					console.text +=  "NetStream event : " + NetStatusEvent(evt).info.code + "\n";
 			}
 			
-			// Connect, then publish (or disconnect)
+			// Connect (or disconnect)
 			private function connect():void {
 				
 				if (_connection) {
@@ -209,9 +188,60 @@
 						_connection2.connect(_urlPath);
 						_connection2.addEventListener(NetStatusEvent.NET_STATUS, onStatus);
 					}
-					btPublish.label = "Unpublish";
-					cbDump.enabled = false;
+					btConnect.label = "Disconnect";
 				}
+			}
+			
+			// Publish (or unpublish)
+			private function publish():void {
+				
+				// Unpublish
+				if (btPublish.label == "Unpublish") {
+					
+					if (_outstream)
+						_outstream.close();
+					if (_netGroup)
+						_netGroup.close();
+						
+					btPublish.label = "Publish";
+					return;
+				}
+				
+				// Classic publishing
+				if (_connection) {
+					_outstream = new NetStream(_connection);
+					_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
+					_outstream.attachCamera(_cam);
+					_outstream.attachAudio(_mic);
+					_outstream.videoStreamSettings = _videoCodec;
+					_outstream.publish(_publishName);
+					onReliable(); // set reliability
+				} else if (_connection2) { // NetGroup publishing
+					
+					var groupSpec:GroupSpecifier = new GroupSpecifier(group.text);
+					groupSpec.peerToPeerDisabled = false; 
+					groupSpec.serverChannelEnabled=true; 
+					groupSpec.ipMulticastMemberUpdatesEnabled=true; 
+					groupSpec.multicastEnabled=true; 
+					groupSpec.postingEnabled=true;
+					var groupId:String = groupSpec.groupspecWithAuthorizations(); 
+					
+					console.text += "GroupSpec created : " + groupId + "\n";
+					_outstream = new NetStream(_connection2, groupId);
+					_outstream.addEventListener(NetStatusEvent.NET_STATUS, onStatusOutstream);
+					_outstream.addEventListener(AsyncErrorEvent.ASYNC_ERROR, onStatusOutstream);
+					onReliable(); // set reliability
+					
+					_netGroup = new NetGroup(_connection2,groupId); 
+					_netGroup.addEventListener(NetStatusEvent.NET_STATUS, function(evt:NetStatusEvent):void {
+						console.text +=  "NetGroup event : " + evt.info.code + "\n"; 
+					});
+				} else {
+					console.text += "No connection available, please connect first\n";
+					return;
+				}
+				btPublish.label = "Unpublish";
+				cbDump.enabled = false;
 			}
 			
 			// Send a message to all
@@ -369,7 +399,8 @@
 				<mx:HBox width="100%">
 					<mx:Label text="NetGroup*" toolTip="No NetGroup if empty" />
 					<mx:TextInput width="100%" text="" id="group"/>
-					<mx:Button label="Publish" click="connect()" id="btPublish"/>
+					<mx:Button label="Connect" click="connect()" id="btConnect"/>
+					<mx:Button label="Publish" click="publish()" id="btPublish"/>
 				</mx:HBox>
 				<mx:HBox width="100%">
 					<mx:Label text="Message"/>
@@ -423,6 +454,6 @@
 			</mx:VBox>
 			<mx:VideoDisplay width="360" height="280" id="player"/>
 		</mx:HBox>
-		<s:TextArea height="100%" width="100%" id="console" editable="false"/>
+		<mx:TextArea height="100%" width="100%" id="console" editable="false" valueCommit="console.verticalScrollPosition=console.maxVerticalScrollPosition"/>
 	</mx:VBox>
 </mx:Application>

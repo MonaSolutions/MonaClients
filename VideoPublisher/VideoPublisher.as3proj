@@ -8,7 +8,7 @@
     <movie fps="30" />
     <movie width="880" />
     <movie height="660" />
-    <movie version="19" />
+    <movie version="20" />
     <movie minorVersion="0" />
     <movie platform="Flash Player" />
     <movie background="#FFFFFF" />
@@ -42,7 +42,7 @@
     <option linkReport="" />
     <option loadExterns="" />
     <option staticLinkRSL="True" />
-    <option additional="-locale en_US&#xA;-theme=lib\halo.swc" />
+    <option additional="-locale en_US&#xA;" />
     <option compilerConstants="" />
     <option minorVersion="" />
   </build>
