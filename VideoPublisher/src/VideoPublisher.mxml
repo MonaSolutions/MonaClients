@@ -51,24 +51,23 @@
 			private var _videoCodec:H264VideoStreamSettings;
 			
 			[Bindable] private var listCam:ArrayList = new ArrayList();
+			[Bindable] private var listMic:ArrayList = new ArrayList();
 			[Bindable] private var listVideoCodec:ArrayList = new ArrayList(["H264 Baseline","H264 Main","Sorenson"]);
-			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex","Off"]);
+			[Bindable] private var listAudioCodec:ArrayList = new ArrayList(["NellyMoser","Speex"]);
 			[Bindable] private var listEchoCancellation:ArrayList = new ArrayList(["Normal","Headphones","Usb Device", "Off","Basic Micro"]);
 			[Bindable] private var listResolution:ArrayList = new ArrayList(["160x120","320x240","480x360","640x480","1280x960", "320x180","480x270","640x360","1280x720"]);
 			
 			// init camera
 			private function init():void {
-				// Init microphone
-				comboAudioCodec.selectedIndex = 1;
-				onEchoChanged();
-				onSilenceChange();
-				onNoiseChange();
 				
-				// Init camera parameters and select the first one
-				for (var index:String in Camera.names) {
+				// Init camera & mic parameters and select the first one
+				for (var index:String in Camera.names)
 					listCam.addItem(Camera.names[index]);
-				}
 				listCam.addItem("Off");
+				
+				for (var index2:String in Microphone.names)
+					listMic.addItem(Microphone.names[index2]);
+				listMic.addItem("Off");
 				
 				comboCam.selectedIndex = 0;
 				comboVideoCodec.selectedIndex = 0;
@@ -96,6 +95,10 @@
 				}
 				
 				onCamChange();
+				
+				// Init microphone
+				comboAudioCodec.selectedIndex = 1;
+				onEchoChanged();
 				
 				// Select the first video codec & set video quality
 				onVideoCodec();
@@ -288,17 +291,19 @@
 			
 			// Change the microphone properties
 			private function onEchoChanged():void {
-				if (comboAudioCodec.selectedLabel == "Off") {
+				var selection:String = String(comboMic.selectedItem);
+				if (selection == "Off")
 					_mic = null;
-				} else {
+				else {
 					
-					_mic = Microphone.getMicrophone();// default microphone
+					_mic = Microphone.getMicrophone(comboMic.selectedIndex);// default microphone
 					if (echoCancellation.selectedItem=="Basic Micro") {
 						_mic.setUseEchoSuppression(cbEchoSuppression.selected);
 						console.text += "Basic micro : "+_mic+"\n";
-					} else if (Microphone.getEnhancedMicrophone()) {
+					} else if (Microphone.getEnhancedMicrophone(comboMic.selectedIndex)) {
+						
+						_mic = Microphone.getEnhancedMicrophone(comboMic.selectedIndex);
 						var options:MicrophoneEnhancedOptions = new MicrophoneEnhancedOptions();
-						_mic = Microphone.getEnhancedMicrophone();
 						switch(echoCancellation.selectedItem){
 							case "Normal":
 								options.mode = MicrophoneEnhancedMode.FULL_DUPLEX;
@@ -317,12 +322,16 @@
 						_mic.enhancedOptions = options;
 					} else
 						console.text += "Enhanced Microphone options are not available with your Microphone\n";
-					if (!_mic) {
-						console.text += "No Microphone founded\n";
-						return;
+					
+					if (_mic) {
+						_mic.codec = comboAudioCodec.selectedLabel;
+						onSilenceChange();
+						onNoiseChange();
 					}
-					_mic.codec = comboAudioCodec.selectedLabel;
+					else
+						console.text += "No Microphone found (or not supported)\n";
 				}
+				
 				if(_outstream)
 					_outstream.attachAudio(_mic);
 					
@@ -333,7 +342,7 @@
 						console.text += "Audio parameters changed (codec : " + _mic.codec + ", echo suppression : " + _mic.useEchoSuppression + ")\n";
 			}
 			
-			// Change the camera used by player
+			// Change the camera used for streaming
 			private function onCamChange():void {
 				 var selection:String = String(comboCam.selectedIndex);
 				 if (selection == "Off")
@@ -433,6 +442,10 @@
 				</mx:Panel>
 				
 				<mx:Panel title="Audio" width="100%">
+					<mx:HBox width="100%">
+						<mx:Label text="Microphone"/>
+						<mx:ComboBox id="comboMic" dataProvider="{listMic}" change="onEchoChanged()" editable="false"/>
+					</mx:HBox>
 					<mx:HBox width="100%">
 						<mx:Label text="Codec"/>
 						<mx:ComboBox id="comboAudioCodec" dataProvider="{listAudioCodec}" change="onEchoChanged()" editable="false"/>
